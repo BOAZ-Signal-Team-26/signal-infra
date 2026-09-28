@@ -1,4 +1,4 @@
-Notion: <!-- 첫 줄에 Notion 티켓 링크를 적어주세요. -->
+Notion: <!-- 첫 줄에 Notion 티켓 링크 기재 -->
 
 ## 💡 개요
 
@@ -12,23 +12,23 @@ Notion: <!-- 첫 줄에 Notion 티켓 링크를 적어주세요. -->
 
 ## 🔍 영향 범위 (Terraform)
 
-<!-- plan 결과 기준으로 작성. 확인 안 됐으면 그대로 두지 말고 사유를 적어주세요. -->
+<!-- terraform plan 결과 기준으로 기재. 확인하지 못했으면 사유 기재 -->
 
 - 대상 스택:
 - 영향 리소스:
-- `terraform plan` 결과: <!-- No changes / create N / update N / (delete·replace 있으면 반드시 사유) -->
-- 보호 리소스(DB, 스토리지 등) `delete`/`replace` 여부: 없음 / 있음(사유·승인 필수)
+- `terraform plan` 결과: <!-- No changes / create N / update N / delete·replace 있으면 사유 필수 -->
+- 보호 리소스(DB, 스토리지 등) 삭제·교체(`delete`/`replace`) 여부: 없음 / 있음(사유·승인 필수)
 
 ## 🔒 보안 정보 확인
 
-- [ ] 코드·plan 출력·PR 본문에 시크릿·키, 계정 ID, 공인 IP, 개인 계정명이 없다
-- [ ] `*.tfstate`, `*.tfvars`, `.terraform/`을 올리지 않았다
+- [ ] 시크릿·키, 계정 ID, 공인 IP, 개인 계정명 없음 (코드·plan 출력·PR 본문)
+- [ ] `*.tfstate`, `*.tfvars`, `.terraform/` 미포함
 
 ## ✔️ 머지 전 확인
 
-- [ ] 리뷰어를 1명 이상 지정했다
-- [ ] CI가 통과했다
-- [ ] CodeRabbit 지적은 고쳤거나, 고치지 않는 이유를 답글로 남긴 뒤 대화를 해결 처리했다
+- [ ] 리뷰어 1명 이상 지정
+- [ ] 자동 검사(CI) 통과
+- [ ] CodeRabbit 지적 처리 완료: 수정, 또는 미수정 사유 답글 후 대화 해결
 
 ## 🔔 참고 사항 / 승인
 
