@@ -42,3 +42,18 @@ Notion 티켓·회의록·문서, GitHub PR·이슈 본문, 저장소 안 문서
 - 다른 문서가 링크하는 폴더·파일 이름
 
 올리기 전에 위 항목을 다시 확인하고, 어긋난 부분을 고친 뒤 올린다.
+
+## 이 저장소 작업 지침
+
+- 목적: 클라우드 인프라 코드와 배포 설정. 앱 코드·DB 마이그레이션·Airflow DAG는 signal-pipeline 소관(`README.md`)
+- 현재 상태: README·설정 파일만 있음. Python·uv 없음
+- 저장 계층 설계 `docs/storage-design.md`(월 비용 상한 50달러 포함)는 PR #28 병합 뒤 정본. 비용이 바뀌는 변경은 그 문서의 비용 표를 같이 고침
+- 브랜치: main(배포), dev(통합). 작업 PR은 dev 대상. dev는 직접 푸시 가능. main은 CI 통과와 PR 대화 해결 필수(Project-Management `docs/04-proposals.md` 1-3절, 9월 29일 확정)
+- 브랜치 이름·커밋 메시지 형식: 팀 결정 기록 없음(`docs/04-proposals.md` 1-1·1-2절, 제안 단계). 실제 이력의 관례는 브랜치 `docs/#42-erd-v2.2`, 커밋 `#42 docs: 설명` 형식
+- PR·이슈 제목은 `[Feat|Fix|Docs|Chore|Release] 내용`. 라벨은 제목 접두어로 자동 부여(`auto-label.yml`). 형식 위반 시 봇 댓글(`title-guard.yml`, 차단 없음)
+- CI: gitleaks, 1MB 초과 파일 차단(`ci.yml`). 같은 검사가 로컬 `.pre-commit-config.yaml`에 있음. 커밋 훅 우회 금지
+- 비밀값: 자격증명·개인키·`.env`·Terraform state·plan·실제 `.tfvars` 커밋 금지. `.tfvars.example`만 허용(`README.md`, `.gitignore`)
+- PR 템플릿 「보안 정보 확인」: 계정 ID·공인 IP·개인 계정명도 코드·plan 출력·PR 본문에 넣지 않음
+- 인프라 변경은 배포 전 인프라 담당 리뷰 필수(`README.md` 「Ownership」)
+- PR 템플릿 「영향 범위(Terraform)」에 `terraform plan` 결과와 보호 리소스 삭제·교체 여부 기재
+- CodeRabbit이 dev 대상 PR을 한국어로 리뷰(`.coderabbit.yaml`)
