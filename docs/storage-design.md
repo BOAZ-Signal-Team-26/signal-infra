@@ -157,7 +157,7 @@ s3://signal-data-{접미어}/
 | `raw/` | 원본 바이트와 `.meta.json`. 압축하지 않고 받은 바이트 그대로 저장. 원천 키 폴더 규칙과 소스별 모양은 원본 보관 규칙 문서 「파일 경로」 |
 | `derived/` | 추출 텍스트(`text.txt`)와 구조 정보(`structure.json`) 두 파일. 절 텍스트 파일은 없음. 파서 버전 형식 예 `pdftotext-24.02_prep-3` |
 | `runs/` | 실행 입력·선택·모집단 manifest와 LLM 호출 요청·응답. 완료 후 불변 |
-| `assets/` | 사전·작성기준 판·지표·프롬프트·형태소 분석기·규칙 파일. 종류는 `dictionaries`, `standards`(작성기준 시행일별 판), `metrics`(지표 정의·가중치·기준집단), `prompts`, `morph`(형태소 분석기 버전·옵션), `rules`(표준문안·표 판정). `config_manifest`가 경로와 sha256을 가리킴 |
+| `assets/` | 사전·작성기준 판·지표·프롬프트·형태소 분석기·규칙 파일. 종류는 `dictionaries`, `standards`(작성기준 시행일별 판), `metrics`(지표 정의·가중치·기준집단), `prompts`, `morph`(형태소 분석기 버전·옵션), `rules`(KRX ETF 이름 대응표(10월 4일 추가, 수집 코드가 읽음), 표준문안·표 판정). `config_manifest`가 경로와 sha256을 가리킴 |
 | `eval/` | 접근 제한. 파일럿(`pilot/`), 사람 평가(`human-eval/`), 제재 사례 검증(`sanction-validation/`: 매핑표·대조군). 평가용 사례는 규칙을 만들 때 보지 않도록 하위 폴더를 분리하고, 전용 IAM 역할만 읽을 수 있음 |
 | `exports/` | `official.json`은 현재 공식 채점 실행을 가리키는 포인터로 `is_official` 전환 때만 갱신. `runs/{score_run_id}/`에 대표 문서 텍스트·역할·상품군·위험등급·작성기준일·표 제외 텍스트·절 범위(`documents.parquet`), `scores.parquet`, `sensitivity/` |
 | `backups/` | PostgreSQL 덤프와 해시 파일 |
@@ -401,7 +401,7 @@ s3://signal-data-{접미어}/
 
 - S3 `raw/` 전체, `runs/` 전체, `assets/` 전체, `eval/` 전체
 - DB 표: `pipeline_run`, `collection_attempt`, `source_watermark`(과거 요청·수집 범위 기록), `metric_definition`(승인 이력), `llm_field_extraction`(다시 돌리면 결과가 달라지고 토큰 비용이 듦)
-- 사람이 만든 자료: KRX 매칭 실패 229건 수동 매핑 결과, 제재 사례 매핑표, 대조군 문서 목록, 두 명 독립 판정 결과(저장 위치는 S3 `eval/`로 확정. DB 쪽 분리는 B4 미결)
+- 사람이 만든 자료: 제재 사례 매핑표, 대조군 문서 목록, 두 명 독립 판정 결과(저장 위치는 S3 `eval/`로 확정. DB 쪽 분리는 B4 미결)
 - 비밀값(API 키). SSM에만 두고, 원본 발급처에서 재발급 가능한지 키별로 기록
 
 #### 계정 폐쇄 대비
