@@ -24,7 +24,7 @@
   - ERD v2.2 표 17개를 PostgreSQL 스키마 `raw`(5개), `staging`(9개), `mart`(3개)에 배치
 - 월 비용(추정): 권고안 확인된 항목 기준 약 37달러 + 미확인 항목(EBS, RDS 저장, 백업, 전송), 최소안(EC2 1대에 PostgreSQL 포함, 하루 4시간만 실행) 약 6.36달러
 - 10월 8일~12월 31일 누적(추정): 권고안 약 104.28달러. 크레딧 200달러를 다 받으면 범위 안, 가입 크레딧 100달러만 있으면 12월 말에 소진
-- 월 상한 50달러(10월 4일 확정). 단가 확인 전 잠정으로 권고안을 기본 구성으로 둠
+- 월 상한 50달러(10월 4일 확정, 운영 목표이며 보장된 상한은 아님. 3.10). 단가 확인 전 잠정으로 권고안을 기본 구성으로 둠
 - 크레딧 소진은 무료 요금제 종료와 계정 폐쇄로 이어지므로, 결제 주체 PM(대현)이 크레딧 잔액 40달러 이하가 되기 전에 유료 요금제로 전환
 
 ## 2. 확정 조건과 입력 수치
@@ -121,14 +121,14 @@
 
 - 버킷 이름: `signal-data-{접미어}`. S3 버킷 이름은 전 세계에서 유일해야 하므로 계정 생성 후 접미어를 정함
 - `RAW_ROOT` = `s3://signal-data-{접미어}/`. DB의 `storage_path`와 각종 `*_manifest_path`는 이 루트 기준 상대경로이며 그대로 S3 객체 키가 됨
-- 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」「적재 순서」를 따름(10월 4일 확정 트리)
+- 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」「적재 순서」를 따름(10월 4일 확정 트리). 이 경로 규칙은 signal-pipeline PR #43 병합 뒤 그 저장소 main에 반영됨. 병합 전에는 PR #43 브랜치의 같은 문서가 기준이며, main의 현재 문서는 수집일·해시 폴더를 쓰는 옛 규칙이므로 따르지 않음. 두 문서의 경로가 다르면 이 문서와 PR #43 기준으로 맞춤
 
 ```text
 s3://signal-data-{접미어}/
   raw/{source}/{원천 키}/{file_role}__v{n}.{ext}
   raw/{source}/{원천 키}/{file_role}__v{n}.{ext}.meta.json
-  raw/data_go_fund/{기준일}/page-NNNN.json            # 페이지당 객체 1개
-  raw/data_go_fund/{기준일}/_complete.json            # 페이지 수·건수. 이 파일이 있어야 스냅숏 유효
+  raw/data_go_fund/{기준일}/page-NNNN__v{n}.json      # 페이지당 객체 1개. 같은 기준일을 다시 받아 바이트가 바뀌면 {기준일}/r2/ 폴더에 새로 씀
+  raw/data_go_fund/{기준일}/_complete__v{n}.json      # 페이지 수·건수. 이 파일이 있는 가장 높은 번호 폴더가 그 기준일의 유효 스냅숏
   raw/krx_etf_daily/{기준일}/...                      # 기준일당 파일 1개
   derived/{raw_sha256}/{parser_version}/text.txt
   derived/{raw_sha256}/{parser_version}/structure.json
@@ -227,13 +227,13 @@ s3://signal-data-{접미어}/
 | `raw/`, `runs/`, `assets/` | 새 키만. 덮어쓰기·삭제 금지 | 영구 | 재수집으로 같은 바이트를 얻는다는 보장이 없음(3.7). `runs/`는 공식 채점 실행의 입력 고정 기록 |
 | `derived/` | 덮어쓰기 허용 | 이전 버전 30일 | 원본과 파서 버전으로 다시 만들 수 있음 |
 | `eval/` | 덮어쓰기 허용, 접근 제한 | 영구 | 사람이 만든 평가 자료는 재생성 불가 |
-| `exports/runs/` | 덮어쓰기 허용 | 90일. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴 |
+| `exports/runs/` | 덮어쓰기 허용 | 90일. 단 공식 실행(`exports/official.json`이 가리키는 실행)의 객체는 만료 제외. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴. 구현: 내보내기 작업이 모든 객체에 태그 `official=no`를 붙이고, 공식 실행이 되면 `official=yes`로 바꿈. 90일 만료 규칙은 태그가 `official=no`인 객체에만 적용 |
 | `backups/` | 날짜별 새 키 | 35일 | 주 1회 덤프 5개 유지 |
-| `raw/data_go_fund/` 스냅숏 | 새 키만 | 최신 2개를 뺀 나머지는 30일 뒤 Standard-IA | 기준일별 전체 스냅숏이 쌓이므로 오래된 것을 저렴한 등급으로 옮김. Standard-IA 단가는 미확인 |
+| `raw/data_go_fund/` 스냅숏 | 새 키만 | 객체 생성 30일 뒤 Standard-IA로 이동(날짜 기준) | 기준일별 전체 스냅숏이 쌓이므로 오래된 것을 저렴한 등급으로 옮김. 매주 수집하면 Standard에 남는 스냅숏은 약 4개. Standard-IA 단가는 미확인 |
 | 버킷 전체 | | 완료되지 않은 멀티파트 업로드 7일 뒤 정리 | 실패한 업로드의 조각이 남아 요금이 나가는 것을 막음 |
 
 - `data_go_fund` 외 `raw/`는 만료 없음, Standard 유지. 용량이 작아 저장 등급 이동 이득이 작음
-- S3 수명 주기 규칙은 「최신 2개」 같은 개수 기준을 지원하지 않으므로 구현 방법은 「미결」
+- S3 수명 주기 규칙은 「최신 2개」 같은 개수 기준을 지원하지 않아 날짜 기준(생성 30일 뒤)으로 정함(10월 4일). 최신 스냅숏도 30일이 지나면 Standard-IA로 이동하지만 읽기는 그대로 가능
 - 금투협이 Phase 1에 들어오면(결정 대기 D) 월 약 20.8GB씩 늘어남(추정). 12월 말 약 62.5GB, 월 1.56달러(추정). 금투협 원본은 저장 등급 이동 대상이 아님
 
 ### 3.3 Airflow 실행 위치와 켜고 끄는 방식
@@ -379,7 +379,7 @@ s3://signal-data-{접미어}/
 #### RDS
 
 - 자동 백업 보관 기간 7일. 그 기간 안의 시점으로 복구 가능
-- 주 1회 `pg_dump`(사용자 지정 형식)를 S3 `backups/postgres/{YYYY-MM-DD}/signal.dump`로 저장하고 같은 폴더에 `signal.dump.sha256`을 둠. 날짜별 새 키, 35일 보관. 자동 백업은 계정과 함께 사라지고 다른 계정·다른 DB 제품으로 옮길 수 없으므로 이식 가능한 덤프를 따로 둠
+- 주 1회 `pg_dump`(사용자 지정 형식)를 S3 `backups/postgres/{YYYY-MM-DD}/signal.dump`로 저장하고 같은 폴더에 `signal.dump.sha256`을 둠. 날짜별 새 키, 35일 보관. 버전 관리가 켜져 있어 현재 버전 만료(`Expiration`)만으로는 삭제 마커만 생기고 덤프가 비현재 버전으로 남으므로, 수명 주기 규칙에 현재 버전 35일 만료와 함께 비현재 버전 만료(`NoncurrentVersionExpiration`, 1일)와 단독 삭제 마커 정리(`ExpiredObjectDeleteMarker`)를 둠. 덤프는 새 키로만 쓰므로 정상 운영에서는 비현재 버전이 생기지 않고, 이 규칙은 삭제 마커가 생긴 경우의 실제 보존 기간을 35일에 맞추는 용도. 자동 백업은 계정과 함께 사라지고 다른 계정·다른 DB 제품으로 옮길 수 없으므로 이식 가능한 덤프를 따로 둠
 - 백업 저장 요금은 단가 미확인(「미결」)
 
 #### S3
@@ -407,7 +407,7 @@ s3://signal-data-{접미어}/
 #### 계정 폐쇄 대비
 
 - 무료 요금제가 끝난 뒤 유료로 전환하지 않으면 계정이 폐쇄되고 90일 뒤 위 자산이 모두 삭제됨
-- 대비: 매월 말 `pg_dump` 1개와 `runs/` 전체를 AWS 밖 보관처에 복사. 보관처는 「미결」
+- 대비: 매월 말 `pg_dump` 1개와 `runs/` 전체, `eval/` 전체, `assets/` 전체를 AWS 밖 보관처에 복사(사람이 만든 평가 자료와 설정은 재생성 불가). 보관처는 「미결」
 
 ### 3.8 접근 권한과 비밀값
 
@@ -473,7 +473,7 @@ s3://signal-data-{접미어}/
 - 연결
   - 채점 DAG 마지막 작업이 `exports/runs/{score_run_id}/`에 `documents.parquet`(대표 문서 텍스트·역할·상품군·위험등급·작성기준일·표 제외 텍스트·절 범위), `scores.parquet`, `sensitivity/`를 씀
   - 같은 작업이 `is_official`이 바뀔 때만 `exports/official.json`(현재 공식 채점 실행 포인터)을 갱신. 대시보드는 이 포인터를 먼저 읽고 가리키는 실행 폴더를 읽음
-  - `exports/runs/`는 90일 보관, `official.json`은 영구(3.2)
+  - `exports/runs/`는 90일 보관, 단 `official.json`이 가리키는 공식 실행 폴더는 만료 제외. `official.json`은 영구(3.2)
   - Streamlit 앱 비밀값에 대시보드 전용 IAM 사용자 키(`exports/` 읽기만) 저장
 - 10월 7일에 DB 직접 읽기가 필수로 정해지면 B(Metabase)를 별도 t4g.small로 두는 안을 다시 비용 계산
 
@@ -497,6 +497,7 @@ s3://signal-data-{접미어}/
 - AWS Budgets는 알림만 보내고 자원을 멈추지 않음. 3단계(실제 비용 50달러) 도달 시 EC2를 중지하는 예산 동작(Budgets actions)을 추가
   - 동작: EC2 인스턴스 중지. RDS와 S3는 데이터 보존을 위해 건드리지 않음
   - 실행 방식: 승인 없이 자동 실행
+  - 한계: 50달러는 보장된 지출 상한이 아니라 운영 목표임. AWS Budgets의 비용 데이터는 보통 8~12시간 간격으로 갱신되어 EC2 중지가 늦어질 수 있고, EC2를 중지해도 RDS 실행 비용과 S3 저장 비용은 계속 나가므로 월 지출이 50달러를 넘을 수 있음
   - 다시 켜는 것은 PM(대현)이 원인 확인 후 수동
 - 크레딧 잔액 확인: 매주 월요일 PM(대현)이 결제 콘솔에서 확인하고, 사람이 놓치는 경우에 대비해 알림으로 보강
   - 크레딧 차감 후 금액(실제 청구액) 기준 예산을 하나 더 두고 1달러 초과 시 알림. 크레딧이 다 떨어져 실제 청구가 시작되면 바로 알 수 있음
@@ -631,7 +632,7 @@ flowchart LR
 ### 프로젝트 종료 절차
 
 - 버킷 정책이 `raw/`·`runs/` 삭제를 거부하고, 탄력적 IP와 RDS에 삭제 방지가 걸려 있어 `terraform destroy`를 바로 실행하면 실패함. 아래 순서로 해제
-1. AWS 밖 보관처로 최종 `pg_dump`, `raw/`, `runs/` 복사 후 해시 대조(3.7)
+1. AWS 밖 보관처로 최종 `pg_dump`, `raw/`, `runs/`, `eval/`, `assets/` 복사 후 해시 대조(3.7)
 2. Budgets EC2 중지 동작 해제, EventBridge Scheduler 삭제(있으면)
 3. EC2 중지 후 삭제. 금감원 법인 키 사용 종료 처리
 4. RDS 삭제 보호 해제 → 최종 스냅숏 없이 삭제(최종 덤프는 1에서 확보)
@@ -675,9 +676,9 @@ flowchart LR
 | 스키마 3개(`raw`·`staging`·`mart`) 배치 승인 | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
 | `document.distributor_id` 외래 키를 두지 않고 적재 검증으로 대체하는 판단을 ERD에 반영할지 | PM(대현) | 10월 14일 |
 | 평가 자료 접근 분리의 DB 쪽(검토 번호 B4): `eval` 스키마를 둘지. 저장소 쪽은 `eval/` 접두어 + 전용 IAM 역할로 확정 | 팀 | evaluation 표 추가 전 |
-| `eval/` 전용 IAM 역할을 누가 맡는지와 역할 이름 | PM(대현) | DB 프로비저닝(10월 8일~14일) 전 |
-| `data_go_fund` 스냅숏의 「최신 2개 외 30일 뒤 Standard-IA」 구현 방법(수명 주기 규칙에 개수 기준이 없음)과 Standard-IA 단가 | 데이터 엔지니어링·인프라(주영) | 10월 14일(비용 표 확정 전) |
-| 스냅숏형 API 객체의 meta.json 유무와 같은 기준일 재수집 때 파일명, 퍼센트 인코딩 범위와 200바이트 초과 때 해시 접미사 형식([원본 보관 규칙 문서](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「미결」) | 데이터 엔지니어링·인프라(주영) | 수집기 구현 전 |
+| `eval/` 전용 IAM 역할 이름 | PM(대현) | DB 프로비저닝(10월 8일~14일) 전 |
+| Standard-IA 단가(`data_go_fund` 스냅숏을 생성 30일 뒤 옮기는 날짜 기준은 10월 4일 확정) | 데이터 엔지니어링·인프라(주영) | 10월 14일(비용 표 확정 전) |
+| 스냅숏형 API 객체(페이지 파일)에도 `.meta.json`을 둘지([원본 보관 규칙 문서](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「미결」). 재수집 파일명(`r2/` 폴더), 퍼센트 인코딩 범위(`/`·`~`·`%`·제어 문자만), 200바이트 초과 해시 접미사(`-h` + SHA-256 앞 12자)는 10월 4일 확정 | 데이터 엔지니어링·인프라(주영) | 수집기 구현 전 |
 | 계정 폐쇄 대비 AWS 밖 백업 보관처 | PM(대현) | 11월 15일 |
 | 금감원 법인 키 신청 담당 | PM(대현)이 지정 | 탄력적 IP 할당 직후 |
 
