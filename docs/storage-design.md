@@ -20,7 +20,7 @@
   - 서울 리전 VPC 하나에 EC2 t4g.small 1대를 상시 실행. 이 서버에서 Airflow(LocalExecutor), poppler(`pdftotext`), curl 수집을 모두 실행
   - EC2에 탄력적 IP 1개를 붙여 금감원 법인 키의 요청 IP로 등록. NAT 게이트웨이는 두지 않음
   - DB는 RDS PostgreSQL db.t4g.micro 단일 AZ. 사설 서브넷에 두고 EC2에서만 접속. Airflow 메타데이터 DB도 같은 인스턴스의 별도 데이터베이스로 둠
-  - 원문은 S3 버킷 하나에 `raw/`, `derived/`, `runs/` 접두어로 저장. 경로는 원본 보관 규칙 문서의 `RAW_ROOT` 상대경로를 그대로 객체 키로 씀. 버전 관리와 덮어쓰기 금지 정책으로 원본 불변을 보장
+  - 원문은 S3 버킷 하나에 `raw/`, `derived/`, `runs/`, `assets/`, `eval/`, `exports/`, `backups/` 접두어로 저장. 경로는 원본 보관 규칙 문서의 `RAW_ROOT` 상대경로를 그대로 객체 키로 씀. 버전 관리와 덮어쓰기 금지 정책으로 원본 불변을 보장
   - ERD v2.2 표 17개를 PostgreSQL 스키마 `raw`(5개), `staging`(9개), `mart`(3개)에 배치
 - 월 비용(추정): 권고안 확인된 항목 기준 약 37달러 + 미확인 항목(EBS, RDS 저장, 백업, 전송), 최소안(EC2 1대에 PostgreSQL 포함, 하루 4시간만 실행) 약 6.36달러
 - 10월 8일~12월 31일 누적(추정): 권고안 약 104.28달러. 크레딧 200달러를 다 받으면 범위 안, 가입 크레딧 100달러만 있으면 12월 말에 소진
@@ -113,7 +113,7 @@
 
 | 선택지 | 비용 | 운영 부담 | 위험 |
 |---|---|---|---|
-| A. 버킷 1개 + 접두어 `raw/`, `derived/`, `runs/` | 같음 | 낮음. 정책 1개 | 접두어별 권한을 정책에서 정확히 나눠야 함 |
+| A. 버킷 1개 + 접두어 `raw/`, `derived/`, `runs/`, `assets/`, `eval/`, `exports/`, `backups/` | 같음 | 낮음. 정책 1개 | 접두어별 권한을 정책에서 정확히 나눠야 함 |
 | B. 계층별 버킷 3개 | 같음 | 중간. 버킷마다 정책·수명 주기·Terraform 자원 | 원본 보관 규칙의 `RAW_ROOT`(세 디렉터리를 포함한 공통 루트)와 어긋남 |
 | C. EC2 EBS 볼륨에 파일로 저장 | EBS 단가 미확인 | 중간. 볼륨 크기·스냅숏 관리 | EC2 장애 시 원본까지 영향. 4인이 직접 열람하기 어려움 |
 
@@ -121,23 +121,65 @@
 
 - 버킷 이름: `signal-data-{접미어}`. S3 버킷 이름은 전 세계에서 유일해야 하므로 계정 생성 후 접미어를 정함
 - `RAW_ROOT` = `s3://signal-data-{접미어}/`. DB의 `storage_path`와 각종 `*_manifest_path`는 이 루트 기준 상대경로이며 그대로 S3 객체 키가 됨
-- 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」를 따름
+- 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」「적재 순서」를 따름(10월 4일 확정 트리)
 
 ```text
 s3://signal-data-{접미어}/
-  raw/{source}/{collected_date}/{object_key_hash}/{file_role}__v{version_seq}.{ext}
-  raw/{source}/{collected_date}/{object_key_hash}/{file_role}__v{version_seq}.{ext}.meta.json
+  raw/{source}/{원천 키}/{file_role}__v{n}.{ext}
+  raw/{source}/{원천 키}/{file_role}__v{n}.{ext}.meta.json
+  raw/data_go_fund/{기준일}/page-NNNN.json            # 페이지당 객체 1개
+  raw/data_go_fund/{기준일}/_complete.json            # 페이지 수·건수. 이 파일이 있어야 스냅숏 유효
+  raw/krx_etf_daily/{기준일}/...                      # 기준일당 파일 1개
   derived/{raw_sha256}/{parser_version}/text.txt
   derived/{raw_sha256}/{parser_version}/structure.json
   runs/{run_id}/inputs.json
   runs/{score_run_id}/selection.json
   runs/{score_run_id}/populations/{population_snapshot_id}.json
-  backups/postgres/{YYYY-MM-DD}/signal.dump      # 이 문서에서 추가(3.7)
-  exports/{score_run_id}/...                     # 대시보드 결정에 따라 추가(3.9)
+  runs/{run_id}/llm/{document_id}/{field_name}/attempt-{n}/request.json
+  runs/{run_id}/llm/{document_id}/{field_name}/attempt-{n}/response.json
+  assets/{종류}/{이름}__v{버전}__{sha256 앞 12자}.{ext}
+  eval/pilot/{id}/
+  eval/human-eval/{id}/
+  eval/sanction-validation/{버전}/
+  exports/official.json
+  exports/runs/{score_run_id}/documents.parquet
+  exports/runs/{score_run_id}/scores.parquet
+  exports/runs/{score_run_id}/sensitivity/
+  backups/postgres/{YYYY-MM-DD}/signal.dump          # + signal.dump.sha256 (3.7)
 ```
 
-- `backups/`, `exports/`는 원본 보관 규칙 문서에 없는 접두어. `storage_path`로 참조하지 않는 운영용 위치
-- 평가 자료(축 4 사건 단위 검증 자료 등)의 접근 분리는 원본 보관 규칙 문서에서 미결(검토 번호 B4: ERD v2 검토에서 붙인 「평가 자료 접근 분리」 항목 번호). 분리로 정해지면 별도 버킷을 하나 추가
+소스(`{source}`) 7개: `dart`, `kofia_disclosure`, `fss_sanction`, `fss_improvement`, `fss_dispute`, `data_go_fund`(공공데이터포털 펀드상품기본정보), `krx_etf_daily`(KRX ETF 일별 매매정보). KRX 소스 이름은 `krx_etf_daily`로 확정.
+
+접두어별 내용:
+
+| 접두어 | 내용 |
+|---|---|
+| `raw/` | 원본 바이트와 `.meta.json`. 압축하지 않고 받은 바이트 그대로 저장. 원천 키 폴더 규칙과 소스별 모양은 원본 보관 규칙 문서 「파일 경로」 |
+| `derived/` | 추출 텍스트(`text.txt`)와 구조 정보(`structure.json`) 두 파일. 절 텍스트 파일은 없음. 파서 버전 형식 예 `pdftotext-24.02_prep-3` |
+| `runs/` | 실행 입력·선택·모집단 manifest와 LLM 호출 요청·응답. 완료 후 불변 |
+| `assets/` | 사전·작성기준 판·지표·프롬프트·형태소 분석기·규칙 파일. 종류는 `dictionaries`, `standards`(작성기준 시행일별 판), `metrics`(지표 정의·가중치·기준집단), `prompts`, `morph`(형태소 분석기 버전·옵션), `rules`(표준문안·표 판정). `config_manifest`가 경로와 sha256을 가리킴 |
+| `eval/` | 접근 제한. 파일럿(`pilot/`), 사람 평가(`human-eval/`), 제재 사례 검증(`sanction-validation/`: 매핑표·대조군). 평가용 사례는 규칙을 만들 때 보지 않도록 하위 폴더를 분리하고, 전용 IAM 역할만 읽을 수 있음 |
+| `exports/` | `official.json`은 현재 공식 채점 실행을 가리키는 포인터로 `is_official` 전환 때만 갱신. `runs/{score_run_id}/`에 대표 문서 텍스트·역할·상품군·위험등급·작성기준일·표 제외 텍스트·절 범위(`documents.parquet`), `scores.parquet`, `sensitivity/` |
+| `backups/` | PostgreSQL 덤프와 해시 파일 |
+
+- `assets/`, `eval/`, `exports/`, `backups/`는 DB `storage_path`로 참조하지 않는 운영·설정 위치. `config_manifest`가 `assets/` 경로를 참조
+- 평가 자료의 저장소 쪽 접근 분리는 같은 버킷의 `eval/` 접두어 + 전용 IAM 역할로 확정. DB 쪽 분리(`eval` 스키마를 둘지)는 원본 보관 규칙 문서에서 미결(검토 번호 B4: ERD v2 검토에서 붙인 「평가 자료 접근 분리」 항목 번호)
+
+#### 적재 순서
+
+1. `collection_attempt` 기록
+2. 응답 완전성 검증
+3. sha256 비교. 같으면 쓰기를 생략하고 기존 `raw_object` 재사용
+4. S3 쓰기. `.meta.json`을 먼저, 원본을 나중에, 새 키에만 씀
+5. `raw_object` INSERT와 attempt 갱신을 한 트랜잭션으로 처리
+6. 구간 검증을 통과했을 때만 `source_watermark` 전진(5와 별도 트랜잭션)
+7. 추출: `derived/` `text.txt` → `structure.json` → DB
+8. LLM 호출: `runs/…/llm`
+9. 채점: `runs/`
+10. `exports/`
+
+- 고아 객체(S3에는 있으나 `raw_object` 행이 없는 객체)는 삭제하지 않음. 재시도에서 같은 키·같은 바이트이면 채택하고 주간 보고에 목록만 남김
+- 4번에서 `.meta.json`을 먼저 쓰므로 아래 「원본 불변 보장」의 한쪽만 올라간 상태는 원본 없이 meta.json만 있는 경우로 바뀜. 재실행하면 같은 키·같은 바이트 규칙으로 이어서 올림
 
 #### 원본 불변 보장
 
@@ -159,7 +201,10 @@ s3://signal-data-{접미어}/
 | 접두어 | 쓰기 | 이유 |
 |---|---|---|
 | `raw/` | 조건부 쓰기만 허용. 덮어쓰기 금지 | 원본 바이트 불변 |
-| `runs/` | 조건부 쓰기만 허용. 덮어쓰기 금지 | 완료된 manifest 불변 |
+| `runs/` | 조건부 쓰기만 허용. 덮어쓰기 금지. 완료 후 불변이며 SUCCEEDED 전 sha256 재대조 | 완료된 manifest·LLM 응답 불변 |
+| `assets/` | 조건부 쓰기만 허용. 덮어쓰기 금지 | 이름·버전·해시 12자로 경로가 정해지는 불변 자산 |
+| `eval/` | 조건 없는 쓰기 허용. 읽기는 전용 IAM 역할만 | 평가 자료 갱신 가능, 접근 제한 |
+| `exports/` | 조건 없는 쓰기 허용 | 채점 실행 내보내기와 `official.json` 포인터 갱신 |
 | `derived/` | 조건 없는 쓰기 허용 | 원본 보관 규칙상 EXTRACT_FAILED·EXTRACT_PARTIAL 결과는 다음 실행이 같은 키(원본 파일 × 파서 버전)에 덮어씀. 이전 내용은 버전 관리로 남고 수명 주기로 30일 뒤 삭제 |
 
 - 이미 있는 키에 조건부 쓰기가 실패했을 때의 처리
@@ -168,23 +213,28 @@ s3://signal-data-{접미어}/
   - 이 규칙으로 본체만 올라간 뒤 중단된 작업을 다시 실행해도 `.meta.json`까지 이어서 올릴 수 있음
 - 설정
   - 버전 관리(versioning) 켬
-  - 버킷 정책: 파이프라인 역할과 사람 계정 모두 `raw/*`, `runs/*`에 `s3:DeleteObject`, `s3:DeleteObjectVersion` 거부
-  - 버킷 정책: `raw/*`, `runs/*`에 조건(`If-None-Match`) 없는 `s3:PutObject` 거부. 정책에 쓸 조건 키 이름은 구현 때 AWS 공식 문서로 확인
+  - 버킷 정책: `eval/*` 읽기는 전용 IAM 역할만 허용, 그 밖의 주체는 거부(3.8)
+  - 버킷 정책: 파이프라인 역할과 사람 계정 모두 `raw/*`, `runs/*`, `assets/*`에 `s3:DeleteObject`, `s3:DeleteObjectVersion` 거부
+  - 버킷 정책: `raw/*`, `runs/*`, `assets/*`에 조건(`If-None-Match`) 없는 `s3:PutObject` 거부. 정책에 쓸 조건 키 이름은 구현 때 AWS 공식 문서로 확인
   - 종료 시 정리 순서는 6절 「프로젝트 종료 절차」
   - 공개 접근 차단(Block Public Access) 4개 항목 모두 켬
   - 기본 암호화: S3 관리형 키(SSE-S3)
 
-#### 수명 주기
+#### 수명 주기(버킷 버전 관리 켬)
 
-| 접두어 | 규칙 | 이유 |
-|---|---|---|
-| `raw/` | 만료 없음. Standard 유지 | 재수집으로 같은 바이트를 얻는다는 보장이 없음(3.7). 용량이 작아 저장 등급 이동 이득이 작음(다른 등급 단가 미확인) |
-| `derived/` | 이전 버전 30일 뒤 삭제 | 원본과 파서 버전으로 다시 만들 수 있음 |
-| `runs/` | 만료 없음 | 공식 채점 실행의 입력 고정 기록. 완료 후 불변 |
-| `backups/` | 35일 뒤 삭제 | 주 1회 덤프 5개 유지 |
-| 버킷 전체 | 완료되지 않은 멀티파트 업로드 7일 뒤 삭제 | 실패한 업로드의 조각이 남아 요금이 나가는 것을 막음 |
+| 접두어 | 쓰기 | 보관 | 이유 |
+|---|---|---|---|
+| `raw/`, `runs/`, `assets/` | 새 키만. 덮어쓰기·삭제 금지 | 영구 | 재수집으로 같은 바이트를 얻는다는 보장이 없음(3.7). `runs/`는 공식 채점 실행의 입력 고정 기록 |
+| `derived/` | 덮어쓰기 허용 | 이전 버전 30일 | 원본과 파서 버전으로 다시 만들 수 있음 |
+| `eval/` | 덮어쓰기 허용, 접근 제한 | 영구 | 사람이 만든 평가 자료는 재생성 불가 |
+| `exports/runs/` | 덮어쓰기 허용 | 90일. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴 |
+| `backups/` | 날짜별 새 키 | 35일 | 주 1회 덤프 5개 유지 |
+| `raw/data_go_fund/` 스냅숏 | 새 키만 | 최신 2개를 뺀 나머지는 30일 뒤 Standard-IA | 기준일별 전체 스냅숏이 쌓이므로 오래된 것을 저렴한 등급으로 옮김. Standard-IA 단가는 미확인 |
+| 버킷 전체 | | 완료되지 않은 멀티파트 업로드 7일 뒤 정리 | 실패한 업로드의 조각이 남아 요금이 나가는 것을 막음 |
 
-- 금투협이 Phase 1에 들어오면(결정 대기 D) 월 약 20.8GB씩 늘어남(추정). 12월 말 약 62.5GB, 월 1.56달러(추정). 그때도 저장 등급 이동은 하지 않음
+- `data_go_fund` 외 `raw/`는 만료 없음, Standard 유지. 용량이 작아 저장 등급 이동 이득이 작음
+- S3 수명 주기 규칙은 「최신 2개」 같은 개수 기준을 지원하지 않으므로 구현 방법은 「미결」
+- 금투협이 Phase 1에 들어오면(결정 대기 D) 월 약 20.8GB씩 늘어남(추정). 12월 말 약 62.5GB, 월 1.56달러(추정). 금투협 원본은 저장 등급 이동 대상이 아님
 
 ### 3.3 Airflow 실행 위치와 켜고 끄는 방식
 
@@ -329,7 +379,7 @@ s3://signal-data-{접미어}/
 #### RDS
 
 - 자동 백업 보관 기간 7일. 그 기간 안의 시점으로 복구 가능
-- 주 1회 `pg_dump`(사용자 지정 형식)를 S3 `backups/postgres/`에 저장, 35일 보관. 자동 백업은 계정과 함께 사라지고 다른 계정·다른 DB 제품으로 옮길 수 없으므로 이식 가능한 덤프를 따로 둠
+- 주 1회 `pg_dump`(사용자 지정 형식)를 S3 `backups/postgres/{YYYY-MM-DD}/signal.dump`로 저장하고 같은 폴더에 `signal.dump.sha256`을 둠. 날짜별 새 키, 35일 보관. 자동 백업은 계정과 함께 사라지고 다른 계정·다른 DB 제품으로 옮길 수 없으므로 이식 가능한 덤프를 따로 둠
 - 백업 저장 요금은 단가 미확인(「미결」)
 
 #### S3
@@ -343,14 +393,15 @@ s3://signal-data-{접미어}/
 | DART 원본 | 일부 | 접수번호로 다시 받을 수 있으나 정정·첨부 교체 후 같은 바이트라는 보장이 없음 |
 | 금투협 원본 | 일부 | 같은 공고의 같은 파일명이 항상 불변이라고 가정하지 않음(원본 보관 규칙) |
 | 금감원 제재 원본 | 불확실 | API가 과거를 얼마나 제공하는지 확인되지 않음 |
-| KRX 일별 원본 | 아니오 | 그날의 전체 목록 스냅숏 |
+| `krx_etf_daily` 원본 | 아니오 | 그날의 전체 목록 스냅숏 |
+| `data_go_fund` 스냅숏 | 일부 | `basDt`로 기준일을 지정해 받을 수 있음(9월 20일 실측). 받은 스냅숏은 기준일 폴더로 보존 |
 | `runs/` manifest | 아니오 | 공식 채점 실행의 입력 고정 기록 |
 
 #### 재생성 불가 자산(유실 시 복구 불가, 백업 필수)
 
-- S3 `raw/` 전체와 `runs/` 전체
+- S3 `raw/` 전체, `runs/` 전체, `assets/` 전체, `eval/` 전체
 - DB 표: `pipeline_run`, `collection_attempt`, `source_watermark`(과거 요청·수집 범위 기록), `metric_definition`(승인 이력), `llm_field_extraction`(다시 돌리면 결과가 달라지고 토큰 비용이 듦)
-- 사람이 만든 자료: KRX 매칭 실패 229건 수동 매핑 결과, 제재 사례 매핑표, 대조군 문서 목록, 두 명 독립 판정 결과(저장 위치 미정, B4)
+- 사람이 만든 자료: KRX 매칭 실패 229건 수동 매핑 결과, 제재 사례 매핑표, 대조군 문서 목록, 두 명 독립 판정 결과(저장 위치는 S3 `eval/`로 확정. DB 쪽 분리는 B4 미결)
 - 비밀값(API 키). SSM에만 두고, 원본 발급처에서 재발급 가능한지 키별로 기록
 
 #### 계정 폐쇄 대비
@@ -388,8 +439,9 @@ s3://signal-data-{접미어}/
 | 루트 계정 | MFA 켬. 결제 설정 외에는 쓰지 않음. 결제 주체 PM(대현)이 보관 |
 | IAM 그룹 `signal-admin` | 관리자 권한. PM(대현), 데이터 엔지니어링·인프라(주영) |
 | IAM 그룹 `signal-dev` | EC2·RDS 읽기, Session Manager 접속, S3 버킷 읽기, SSM Parameter Store 읽기 없음. 분석·리서치(민석), 데이터 사이언스(다빈) |
-| EC2 인스턴스 역할 `signal-pipeline-ec2` | S3 버킷 읽기·쓰기(`raw/`, `runs/` 삭제 거부), SSM Parameter Store `/signal/*` 읽기, SSM 관리 정책 |
+| EC2 인스턴스 역할 `signal-pipeline-ec2` | S3 버킷 읽기·쓰기(`raw/`, `runs/`, `assets/` 삭제 거부), SSM Parameter Store `/signal/*` 읽기, SSM 관리 정책 |
 
+- `eval/` 읽기는 전용 IAM 역할만 허용. `signal-dev`의 S3 버킷 읽기와 인스턴스 역할의 읽기에서 `eval/*`는 제외. 전용 역할을 누가 맡는지는 「미결」
 - 사람 계정은 IAM 사용자 4명 + MFA 필수. 액세스 키는 로컬 CLI용으로만 발급하고 90일마다 교체
 - 대시보드가 S3를 읽는 경우(3.9) 대시보드 전용 IAM 사용자를 두고 `exports/` 읽기만 허용
 
@@ -408,7 +460,7 @@ s3://signal-data-{접미어}/
 | 선택지 | 비용 | DB 연결 | 위험 |
 |---|---|---|---|
 | A. Streamlit Community Cloud | 무료. 비공개 앱 1개 | 외부 서비스라 출구 IP가 고정되지 않음. RDS를 직접 읽으려면 5432번을 인터넷에 열어야 함 | DB 공개. 권고하지 않는 연결 |
-| A'. Streamlit Community Cloud + S3 내보내기 파일 | 무료 + S3 소액 | 공식 채점 실행이 끝나면 `mart` 결과를 `exports/`에 파일로 내보내고 대시보드는 그 파일만 읽음 | 실시간 조회 불가. 채점 실행 단위 갱신 |
+| A'. Streamlit Community Cloud + S3 내보내기 파일 | 무료 + S3 소액 | 공식 채점 실행이 끝나면 `mart` 결과를 `exports/runs/{score_run_id}/`에 파일로 내보내고 대시보드는 그 파일만 읽음 | 실시간 조회 불가. 채점 실행 단위 갱신 |
 | B. Metabase를 EC2에 자체 설치 | 추가 EC2 비용 없음, 메모리 부담 | `signal_reader`로 RDS 직접 읽기. 외부 공개 없이 Session Manager 포트 전달로 열람 | 2GB 메모리에 Airflow와 같이 올리기 어려움. 별도 인스턴스면 월 15달러 이상(추정) |
 | C. Grafana Cloud 무료(3명) | 무료 | A와 같이 외부에서 RDS에 접속해야 함 | DB 공개 |
 | D. QuickSight | 비쌈(단가 미확인) | VPC 연결 가능 | 예산 초과 |
@@ -419,7 +471,9 @@ s3://signal-data-{접미어}/
   - RDS를 인터넷에 열지 않으면서 무료로 4인 이상이 볼 수 있는 유일한 선택지
   - 대시보드가 보여줄 점수는 `is_official=true`인 채점 실행 하나의 것이므로([데이터 테이블·ERD 설계](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/data-model.md) 「실행과 비교 모집단」) 실행 단위 파일 내보내기와 맞음
 - 연결
-  - 채점 DAG 마지막 작업이 `mart` 읽기 뷰를 Parquet 또는 CSV로 `exports/{score_run_id}/`에 씀
+  - 채점 DAG 마지막 작업이 `exports/runs/{score_run_id}/`에 `documents.parquet`(대표 문서 텍스트·역할·상품군·위험등급·작성기준일·표 제외 텍스트·절 범위), `scores.parquet`, `sensitivity/`를 씀
+  - 같은 작업이 `is_official`이 바뀔 때만 `exports/official.json`(현재 공식 채점 실행 포인터)을 갱신. 대시보드는 이 포인터를 먼저 읽고 가리키는 실행 폴더를 읽음
+  - `exports/runs/`는 90일 보관, `official.json`은 영구(3.2)
   - Streamlit 앱 비밀값에 대시보드 전용 IAM 사용자 키(`exports/` 읽기만) 저장
 - 10월 7일에 DB 직접 읽기가 필수로 정해지면 B(Metabase)를 별도 t4g.small로 두는 안을 다시 비용 계산
 
@@ -513,7 +567,7 @@ flowchart LR
         DART["OPEN DART"]
         KOFIA["금투협 전자공시"]
         FSS["금감원 API<br/>(법인 키, 요청 IP 등록)"]
-        PORTAL["공공데이터포털·KRX"]
+        PORTAL["공공데이터포털(data_go_fund)·KRX(krx_etf_daily)"]
     end
 
     subgraph AWS["AWS 서울 리전"]
@@ -527,7 +581,7 @@ flowchart LR
             end
         end
         VPCE["S3 게이트웨이 엔드포인트"]
-        S3[("S3 signal-data-{접미어}<br/>raw/ derived/ runs/<br/>backups/ exports/")]
+        S3[("S3 signal-data-{접미어}<br/>raw/ derived/ runs/ assets/<br/>eval/ exports/ backups/")]
         SSM["SSM Parameter Store<br/>/signal/*"]
         SM["SSM Session Manager"]
         BUD["AWS Budgets<br/>50달러 도달 시 EC2 중지"]
@@ -620,7 +674,10 @@ flowchart LR
 | Airflow 2.x 계열의 보안 수정 지원이 12월까지 유지되는지 | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
 | 스키마 3개(`raw`·`staging`·`mart`) 배치 승인 | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
 | `document.distributor_id` 외래 키를 두지 않고 적재 검증으로 대체하는 판단을 ERD에 반영할지 | PM(대현) | 10월 14일 |
-| 평가 자료 접근 분리(검토 번호 B4): 별도 버킷·`eval` 스키마를 둘지 | 팀 | evaluation 표 추가 전 |
+| 평가 자료 접근 분리의 DB 쪽(검토 번호 B4): `eval` 스키마를 둘지. 저장소 쪽은 `eval/` 접두어 + 전용 IAM 역할로 확정 | 팀 | evaluation 표 추가 전 |
+| `eval/` 전용 IAM 역할을 누가 맡는지와 역할 이름 | PM(대현) | DB 프로비저닝(10월 8일~14일) 전 |
+| `data_go_fund` 스냅숏의 「최신 2개 외 30일 뒤 Standard-IA」 구현 방법(수명 주기 규칙에 개수 기준이 없음)과 Standard-IA 단가 | 데이터 엔지니어링·인프라(주영) | 10월 14일(비용 표 확정 전) |
+| 스냅숏형 API 객체의 meta.json 유무와 같은 기준일 재수집 때 파일명, 퍼센트 인코딩 범위와 200바이트 초과 때 해시 접미사 형식([원본 보관 규칙 문서](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「미결」) | 데이터 엔지니어링·인프라(주영) | 수집기 구현 전 |
 | 계정 폐쇄 대비 AWS 밖 백업 보관처 | PM(대현) | 11월 15일 |
 | 금감원 법인 키 신청 담당 | PM(대현)이 지정 | 탄력적 IP 할당 직후 |
 
