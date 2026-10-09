@@ -4,12 +4,12 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | 초안. 10차 미팅 안건. 10월 6일 단가 확인 반영 |
+| 상태 | 초안. 10차 미팅 안건. 10월 6일 단가 확인 반영. 10월 9일 일정 변경과 PR #43 변경 반영 |
 | 기준일 | 10월 4일(단가 10월 6일) |
 | 담당 | PM(대현) |
 | 리뷰 | 데이터 엔지니어링·인프라(주영) |
-| 입력 | 9월 30일 저장 계층 계획서 초안, 10월 4일 PM 확인 결과, ERD v2.2(Signal-Pipeline-Design 저장소 `docs/#42-erd-v2.2` 브랜치, PR #43) |
-| 다음 단계 | DB 프로비저닝(10월 8일~14일), 데이터 파이프라인 Flow·아키텍처 초안(10월 8일경)이 이 문서를 전제로 함 |
+| 입력 | 9월 30일 저장 계층 계획서 초안, 10월 4일 PM 확인 결과, ERD v2.2(signal-pipeline 저장소 `docs/#42-erd-v2.2` 브랜치, PR #43. 병합 전까지 이 브랜치가 기준) |
+| 다음 단계 | 아키텍처 초안 리뷰(10월 14일), DB 구축(10월 15일~28일, 쉬는 기간)이 이 문서를 전제로 함. 일정은 10월 9일 PM(대현) 결정 |
 
 - 가격은 10월 6일 AWS 가격 페이지의 서울 리전 공식 가격 데이터로 확인함(2절 「가격」). 무료 요금제 인스턴스 제한만 2차 출처 「추정」으로 남음
 - 10월 4일 초안에서 「미확인」이던 요금(EBS 볼륨, RDS 저장 공간, 백업 저장 공간, 데이터 전송)은 단가와 용량 가정을 넣어 비용 표 합계에 포함함
@@ -23,7 +23,7 @@
   - 원문은 S3 버킷 하나에 `raw/`, `derived/`, `runs/`, `assets/`, `eval/`, `exports/`, `backups/` 접두어로 저장. 경로는 원본 보관 규칙 문서의 `RAW_ROOT` 상대경로를 그대로 객체 키로 씀. 버전 관리와 덮어쓰기 금지 정책으로 원본 불변을 보장
   - ERD v2.2 표 17개를 PostgreSQL 스키마 `raw`(5개), `staging`(9개), `mart`(3개)에 배치
 - 월 비용(추정): 권고안 약 42.62달러(EBS·RDS 저장·백업 포함), 최소안(EC2 1대에 PostgreSQL 포함, 하루 4시간만 실행) 약 10.89달러
-- 10월 8일~12월 31일 누적(추정): 권고안 약 119.04달러. 크레딧 200달러를 다 받으면 범위 안, 가입 크레딧 100달러만 있으면 12월 중순에 소진
+- 10월 15일~12월 31일 누적(추정): 권고안 약 109.20달러. 크레딧 200달러를 다 받으면 범위 안, 가입 크레딧 100달러만 있으면 12월 하순(25일경)에 소진
 - 월 상한 50달러(10월 4일 확정, 운영 목표이며 보장된 상한은 아님. 3.10). 단가 확인 결과 권고안이 50달러 안이므로 권고안을 기본 구성으로 둠(10월 6일)
 - 크레딧 소진은 무료 요금제 종료와 계정 폐쇄로 이어지므로, 결제 주체 PM(대현)이 크레딧 잔액 40달러 이하가 되기 전에 유료 요금제로 전환
 
@@ -48,8 +48,8 @@
 | DART 대상 건수 | 약 6,500건 | 추정. 9월 30일 저장 계층 계획서 기준 |
 | DART 원본 합계 | 약 7GB | 위 두 값의 곱 |
 | 추출 텍스트 합계 | 약 1.6GB | 10월 4일 PM 실측: DART 9건 pdftotext 결과 평균 243KB × 약 6,500건 |
-| 금투협 원본 | 연 약 250GB | 추정, 미측정. 9월 23일 ERD v2 검토의 cloud 관점 추정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/pipeline-flow.md) 「cloud 관점」). Phase 1 포함 여부 미정(결정 대기 D: 금투협 자료를 Phase 1 수집 범위에 넣을지에 대한 팀 결정) |
-| 전량 재실행 1회 DB 행 수 | 약 8M행, 5~10GB | 추정, ERD v2.1 기준 산정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/pipeline-flow.md) 「cloud 관점」) |
+| 금투협 원본 | 연 약 250GB | 추정, 미측정. 9월 23일 ERD v2 검토의 cloud 관점 추정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「cloud 관점」). Phase 1 포함 여부 미정(결정 대기 D: 금투협 자료를 Phase 1 수집 범위에 넣을지에 대한 팀 결정) |
+| 전량 재실행 1회 DB 행 수 | 약 8M행, 5~10GB | 추정, ERD v2.1 기준 산정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「cloud 관점」) |
 
 ### AWS 계정 조건
 
@@ -132,7 +132,7 @@
 
 - 버킷 이름: `signal-data-{접미어}`. S3 버킷 이름은 전 세계에서 유일해야 하므로 계정 생성 후 접미어를 정함
 - `RAW_ROOT` = `s3://signal-data-{접미어}/`. DB의 `storage_path`와 각종 `*_manifest_path`는 이 루트 기준 상대경로이며 그대로 S3 객체 키가 됨
-- 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」「적재 순서」를 따름(10월 4일 확정 트리). 이 경로 규칙은 signal-pipeline PR #43 병합 뒤 그 저장소 main에 반영됨. 병합 전에는 PR #43 브랜치의 같은 문서가 기준이며, main의 현재 문서는 수집일·해시 폴더를 쓰는 옛 규칙이므로 따르지 않음. 두 문서의 경로가 다르면 이 문서와 PR #43 기준으로 맞춤
+- 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」「적재 순서」를 따름(10월 4일 확정 트리). 이 경로 규칙은 signal-pipeline PR #43 병합 뒤 그 저장소 dev 브랜치에 반영됨. 병합 전에는 PR #43 브랜치의 같은 문서가 기준이며, dev의 현재 문서는 수집일·해시 폴더를 쓰는 옛 규칙이므로 따르지 않음. 두 문서의 경로가 다르면 이 문서와 PR #43 기준으로 맞춤
 
 ```text
 s3://signal-data-{접미어}/
@@ -140,11 +140,14 @@ s3://signal-data-{접미어}/
   raw/{source}/{원천 키}/{file_role}__v{n}.{ext}.meta.json
   raw/data_go_fund/{기준일}/page-NNNN__v{n}.json      # 페이지당 객체 1개. 같은 기준일을 다시 받아 바이트가 바뀌면 {기준일}/r2/ 폴더에 새로 씀
   raw/data_go_fund/{기준일}/_complete__v{n}.json      # 페이지 수·건수. 이 파일이 있는 가장 높은 번호 폴더가 그 기준일의 유효 스냅숏
-  raw/krx_etf_daily/{기준일}/...                      # 기준일당 파일 1개
+  raw/krx_etf_daily/{기준일}/api_response__v{n}.json # 기준일당 파일 1개. 같은 기준일 바이트가 바뀌면 v2
   derived/{raw_sha256}/{parser_version}/text.txt
   derived/{raw_sha256}/{parser_version}/structure.json
-  runs/{run_id}/inputs.json
+  runs/{run_id}/inputs.json                           # EXTRACT·SCORE 실행 모두
+  runs/{run_id}/extraction_attempts.jsonl             # EXTRACT 실행. 추출 시도 1건당 1줄, 실행 끝에 한 번 올림
   runs/{score_run_id}/selection.json
+  runs/{score_run_id}/documents.parquet               # 채점 입력
+  runs/{score_run_id}/excluded.parquet                # 비교 집단 제외 목록
   runs/{score_run_id}/populations/{population_snapshot_id}.json
   runs/{run_id}/llm/{document_id}/{field_name}/attempt-{n}/request.json
   runs/{run_id}/llm/{document_id}/{field_name}/attempt-{n}/response.json
@@ -153,9 +156,9 @@ s3://signal-data-{접미어}/
   eval/human-eval/{id}/
   eval/sanction-validation/{버전}/
   exports/official.json
-  exports/runs/{score_run_id}/documents.parquet
   exports/runs/{score_run_id}/scores.parquet
   exports/runs/{score_run_id}/sensitivity/
+  exports/runs/{score_run_id}/dashboard_documents.parquet  # 대시보드 전용 내보내기(칼럼 미결)
   backups/postgres/{YYYY-MM-DD}/signal.dump          # + signal.dump.sha256 (3.7)
 ```
 
@@ -167,11 +170,13 @@ s3://signal-data-{접미어}/
 |---|---|
 | `raw/` | 원본 바이트와 `.meta.json`. 압축하지 않고 받은 바이트 그대로 저장. 원천 키 폴더 규칙과 소스별 모양은 원본 보관 규칙 문서 「파일 경로」 |
 | `derived/` | 추출 텍스트(`text.txt`)와 구조 정보(`structure.json`) 두 파일. 절 텍스트 파일은 없음. 파서 버전 형식 예 `pdftotext-24.02_prep-3` |
-| `runs/` | 실행 입력·선택·모집단 manifest와 LLM 호출 요청·응답. 완료 후 불변 |
+| `runs/` | 실행 입력·선택·모집단 manifest, 추출 시도 기록(`extraction_attempts.jsonl`), 채점 입력(`documents.parquet`·`excluded.parquet`), LLM 호출 요청·응답. 완료 후 불변. 채점 입력 파일(inputs.json, selection.json, 두 parquet)은 실행 시작 때 한 번 쓰고 바꾸지 않음. 두 parquet의 sha256은 inputs.json에 기록. 실패한 채점 실행을 다시 돌릴 때는 새 score_run_id 발급 |
 | `assets/` | 사전·작성기준 판·지표·프롬프트·형태소 분석기·규칙 파일. 종류는 `dictionaries`, `standards`(작성기준 시행일별 판), `metrics`(지표 정의·가중치·기준집단), `prompts`, `morph`(형태소 분석기 버전·옵션), `rules`(KRX ETF 이름 대응표(10월 4일 추가, 수집 코드가 읽음), 표준문안·표 판정). `config_manifest`가 경로와 sha256을 가리킴 |
 | `eval/` | 접근 제한. 파일럿(`pilot/`), 사람 평가(`human-eval/`), 제재 사례 검증(`sanction-validation/`: 매핑표·대조군). 평가용 사례는 규칙을 만들 때 보지 않도록 하위 폴더를 분리하고, 전용 IAM 역할만 읽을 수 있음 |
-| `exports/` | `official.json`은 현재 공식 채점 실행을 가리키는 포인터로 `is_official` 전환 때만 갱신. `runs/{score_run_id}/`에 대표 문서 텍스트·역할·상품군·위험등급·작성기준일·표 제외 텍스트·절 범위(`documents.parquet`), `scores.parquet`, `sensitivity/` |
+| `exports/` | `official.json`은 현재 공식 채점 실행을 가리키는 포인터로 `is_official` 전환 때만 갱신. `runs/{score_run_id}/`에는 채점 결과(`scores.parquet`, `sensitivity/`)와 대시보드 전용 내보내기(`dashboard_documents.parquet`, 3.9)만 둠 |
 | `backups/` | PostgreSQL 덤프와 해시 파일 |
+
+- LLM 호출 저장: 시도 한 번당 `request.json`과 `response.json`. `request.json`이 입력의 정본(보낸 문서 텍스트, `input_sha256`, `inputs` 목록). `llm_field_extraction.input_sha256`(프롬프트 등과 함께)로 재호출 생략 여부를 판단. 세부 규칙은 원본 보관 규칙 문서 「LLM 호출 저장」(PR #43)
 
 - `assets/`, `eval/`, `exports/`, `backups/`는 DB `storage_path`로 참조하지 않는 운영·설정 위치. `config_manifest`가 `assets/` 경로를 참조
 - 평가 자료의 저장소 쪽 접근 분리는 같은 버킷의 `eval/` 접두어 + 전용 IAM 역할로 확정. DB 쪽 분리(`eval` 스키마를 둘지)는 원본 보관 규칙 문서에서 미결(검토 번호 B4: ERD v2 검토에서 붙인 「평가 자료 접근 분리」 항목 번호)
@@ -186,8 +191,9 @@ s3://signal-data-{접미어}/
 6. 구간 검증을 통과했을 때만 `source_watermark` 전진(5와 별도 트랜잭션)
 7. 추출: `derived/` `text.txt` → `structure.json` → DB
 8. LLM 호출: `runs/…/llm`
-9. 채점: `runs/`
-10. `exports/`
+9. 채점 입력: `runs/{score_run_id}/` inputs.json·selection.json·documents.parquet·excluded.parquet
+10. 채점: `runs/`
+11. `exports/`
 
 - 고아 객체(S3에는 있으나 `raw_object` 행이 없는 객체)는 삭제하지 않음. 재시도에서 같은 키·같은 바이트이면 채택하고 주간 보고에 목록만 남김
 - 4번에서 `.meta.json`을 먼저 쓰므로 아래 「원본 불변 보장」의 한쪽만 올라간 상태는 원본 없이 meta.json만 있는 경우로 바뀜. 재실행하면 같은 키·같은 바이트 규칙으로 이어서 올림
@@ -216,7 +222,7 @@ s3://signal-data-{접미어}/
 | `assets/` | 조건부 쓰기만 허용. 덮어쓰기 금지 | 이름·버전·해시 12자로 경로가 정해지는 불변 자산 |
 | `eval/` | 조건 없는 쓰기 허용. 읽기는 전용 IAM 역할만 | 평가 자료 갱신 가능, 접근 제한 |
 | `exports/` | 조건 없는 쓰기 허용 | 채점 실행 내보내기와 `official.json` 포인터 갱신 |
-| `derived/` | 조건 없는 쓰기 허용 | 원본 보관 규칙상 EXTRACT_FAILED·EXTRACT_PARTIAL 결과는 다음 실행이 같은 키(원본 파일 × 파서 버전)에 덮어씀. 이전 내용은 버전 관리로 남고 수명 주기로 30일 뒤 삭제 |
+| `derived/` | 조건 없는 쓰기 허용 | 원본 보관 규칙상 EXTRACT_OK 결과는 다시 쓰지 않음(불변). EXTRACT_FAILED·EXTRACT_PARTIAL 결과만 다음 실행이 같은 키(원본 파일 × 파서 버전)에 덮어씀. 이전 내용은 버전 관리로 남고 수명 주기로 30일 뒤 삭제. 실행별 실패 기록은 `runs/{run_id}/extraction_attempts.jsonl` |
 
 - 이미 있는 키에 조건부 쓰기가 실패했을 때의 처리
   - 본체 파일과 `.meta.json`은 따로 올리므로 한쪽만 올라간 상태가 생길 수 있음(두 파일 쓰기는 원자적이지 않음)
@@ -227,6 +233,7 @@ s3://signal-data-{접미어}/
   - 버킷 정책: `eval/*` 읽기는 전용 IAM 역할만 허용, 그 밖의 주체는 거부(3.8)
   - 버킷 정책: 파이프라인 역할과 사람 계정 모두 `raw/*`, `runs/*`, `assets/*`에 `s3:DeleteObject`, `s3:DeleteObjectVersion` 거부
   - 버킷 정책: `raw/*`, `runs/*`, `assets/*`에 조건(`If-None-Match`) 없는 `s3:PutObject` 거부. 정책에 쓸 조건 키 이름은 구현 때 AWS 공식 문서로 확인
+    - 이 정책을 켜면 `aws s3 cp`, boto3 `upload_file`의 멀티파트 업로드(8MB 초과), 콘솔 업로드는 `If-None-Match` 헤더가 없어 거부됨. 수집 코드는 `put_object(..., IfNoneMatch='*')`로 씀
   - 종료 시 정리 순서는 6절 「프로젝트 종료 절차」
   - 공개 접근 차단(Block Public Access) 4개 항목 모두 켬
   - 기본 암호화: S3 관리형 키(SSE-S3)
@@ -273,7 +280,7 @@ s3://signal-data-{접미어}/
   - 전체 동시 작업 수(parallelism) 2, DAG당 동시 작업 수(max_active_tasks_per_dag) 2
   - 스왑 파일 2GB를 루트 볼륨에 만듦. 메모리 부족 시 프로세스가 강제 종료되는 대신 느려짐
   - `pdftotext`는 작업 안에서 하위 프로세스로 한 번에 1개씩 실행
-- 10월 8일 실측과 합격 기준(제안)
+- 구축 중 실측(10월 15일~28일)과 합격 기준(제안)
   - 유휴 상태(웹 서버·스케줄러만 실행, DAG 실행 없음)의 사용 메모리 1.2GB 이하, 스왑 사용 0
   - DART PDF 1건 처리 중 스왑 사용 500MB 이하
   - 기준을 넘으면 설정을 더 줄이지 않고 바로 t3.small(x86)로 전환. 같은 2GB이므로 메모리 문제는 그대로 남고, 그때는 3.3 D(t3.medium)를 유료 전환과 함께 검토
@@ -293,7 +300,7 @@ s3://signal-data-{접미어}/
 
 ### 3.4 고정 IP(금감원 법인 키)
 
-- 금감원 법인 키는 요청 IP 등록이 필요함. 수집 서버 IP가 정해지기 전에 신청하면 재신청 필요([데이터 소스 수집 명세](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/data-sources.md) 「금감원」)
+- 금감원 법인 키는 요청 IP 등록이 필요함. 수집 서버 IP가 정해지기 전에 신청하면 재신청 필요([데이터 소스 수집 명세](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-sources.md) 「금감원」)
 
 | 선택지 | 월 비용(추정) | 운영 부담 | 위험 |
 |---|---|---|---|
@@ -324,7 +331,7 @@ s3://signal-data-{접미어}/
 - 근거
   - 6,500건, 약 7GB는 EC2 한 대에서 순차 처리할 수 있는 양. 처리 시간은 구축 때 실측
   - 금투협 수집은 curl로 해야 하고(Python `urllib`는 응답이 중간에 잘림), 금감원 수집은 고정 IP가 필요하므로 수집은 어차피 EC2에서 돌아야 함. 한 곳에 모으면 배포 대상이 하나
-- 설치 대상: `poppler-utils`(`pdftotext` 포함), `curl`. 패키지 목록은 Signal-Pipeline-Design 저장소 [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/pipeline-flow.md) 「실행 환경 요구」와 맞춤
+- 설치 대상: `poppler-utils`(`pdftotext` 포함), `curl`. 패키지 목록은 signal-pipeline 저장소 [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「실행 환경 요구」와 맞춤
 - 처리 흐름: S3 `raw/`에서 임시 디렉터리로 내려받기 → `pdftotext` → `derived/`에 올리기 → DB `file_extraction` 기록 → 임시 파일 삭제
 - 금투협이 들어와 처리량이 크게 늘면 그때 B를 다시 검토
 
@@ -454,7 +461,7 @@ s3://signal-data-{접미어}/
 
 - `eval/` 읽기는 전용 IAM 역할만 허용. `signal-dev`의 S3 버킷 읽기와 인스턴스 역할의 읽기에서 `eval/*`는 제외. 전용 역할을 누가 맡는지는 「미결」
 - 사람 계정은 IAM 사용자 4명 + MFA 필수. 액세스 키는 로컬 CLI용으로만 발급하고 90일마다 교체
-- 대시보드가 S3를 읽는 경우(3.9) 대시보드 전용 IAM 사용자를 두고 `exports/` 읽기만 허용
+- 대시보드가 S3를 읽는 경우(3.9) 대시보드 전용 IAM 사용자를 두고 `exports/` 읽기만 허용. `s3:GetObject`는 `exports/*`에만, 목록 조회(`s3:ListBucket`)가 필요하면 `s3:prefix` 조건을 `exports/*`로 제한. 이 사용자의 키도 90일 교체 대상
 
 #### 비밀값
 
@@ -466,7 +473,7 @@ s3://signal-data-{접미어}/
 
 ### 3.9 대시보드 연결
 
-- 대시보드가 DB를 직접 읽을지, 공개 URL을 허용할지는 PM(대현)·데이터 사이언스(다빈)가 10월 7일 결정(결정 대기)
+- 대시보드가 DB를 직접 읽을지, 공개 URL을 허용할지는 PM(대현)·데이터 사이언스(다빈)가 10월 14일 결정 대기(아키텍처 초안 리뷰 때)
 
 | 선택지 | 비용 | DB 연결 | 위험 |
 |---|---|---|---|
@@ -476,17 +483,20 @@ s3://signal-data-{접미어}/
 | C. Grafana Cloud 무료(3명) | 무료 | A와 같이 외부에서 RDS에 접속해야 함 | DB 공개 |
 | D. QuickSight | 비쌈(단가 미확인) | VPC 연결 가능 | 예산 초과 |
 
-권고: A'(10월 7일 결정 대기)
+권고: A'(10월 14일 아키텍처 초안 리뷰 때 결정 대기)
 
 - 근거
   - RDS를 인터넷에 열지 않으면서 무료로 4인 이상이 볼 수 있는 유일한 선택지
-  - 대시보드가 보여줄 점수는 `is_official=true`인 채점 실행 하나의 것이므로([데이터 테이블·ERD 설계](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/data-model.md) 「실행과 비교 모집단」) 실행 단위 파일 내보내기와 맞음
+  - 대시보드가 보여줄 점수는 `is_official=true`인 채점 실행 하나의 것이므로([데이터 테이블·ERD 설계](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-model.md) 「실행과 비교 모집단」) 실행 단위 파일 내보내기와 맞음
 - 연결
-  - 채점 DAG 마지막 작업이 `exports/runs/{score_run_id}/`에 `documents.parquet`(대표 문서 텍스트·역할·상품군·위험등급·작성기준일·표 제외 텍스트·절 범위), `scores.parquet`, `sensitivity/`를 씀
+  - 채점 DAG 마지막 작업이 `exports/runs/{score_run_id}/`에 `scores.parquet`, `sensitivity/`, 대시보드 전용 내보내기 `dashboard_documents.parquet`를 씀. 채점 입력 `documents.parquet`는 `runs/{score_run_id}/`에 있고 대시보드는 읽지 않음(PR #43)
+  - `dashboard_documents.parquet`에 담을 칼럼은 미결: 드릴다운에 필요한 칼럼만 담는 안과 문서 전문까지 담는 안. 전문은 행마다 수십만 자라 파일이 GB 규모가 될 수 있고 Streamlit 메모리를 넘을 위험이 있음. 결정은 데이터 사이언스(다빈)·PM(대현), 대시보드 구현 전(「미결」)
+  - 서버 측 복사(CopyObject)로 이 파일을 만들면 태그가 원본에서 복사되므로 `--tagging-directive REPLACE`와 태그 `official=no`를 줘야 90일 만료 규칙이 적용됨
+  - 대시보드 IAM 사용자에게 `runs/` 읽기를 주지 않는 이유: 최소 권한. `runs/`는 영구 보관이라 키가 유출되면 모든 과거 실행이 노출됨
   - 같은 작업이 `is_official`이 바뀔 때만 `exports/official.json`(현재 공식 채점 실행 포인터)을 갱신. 대시보드는 이 포인터를 먼저 읽고 가리키는 실행 폴더를 읽음
   - `exports/runs/`는 90일 보관, 단 `official.json`이 가리키는 공식 실행 폴더는 만료 제외. `official.json`은 영구(3.2)
   - Streamlit 앱 비밀값에 대시보드 전용 IAM 사용자 키(`exports/` 읽기만) 저장
-- 10월 7일에 DB 직접 읽기가 필수로 정해지면 B(Metabase)를 별도 t4g.small로 두는 안을 다시 비용 계산
+- 10월 14일에 DB 직접 읽기가 필수로 정해지면 B(Metabase)를 별도 t4g.small로 두는 안을 다시 비용 계산
 
 ### 3.10 비용 통제
 
@@ -510,18 +520,19 @@ s3://signal-data-{접미어}/
   - 실행 방식: 승인 없이 자동 실행
   - 한계: 50달러는 보장된 지출 상한이 아니라 운영 목표임. AWS Budgets의 비용 데이터는 보통 8~12시간 간격으로 갱신되어 EC2 중지가 늦어질 수 있고, EC2를 중지해도 RDS 실행 비용과 S3 저장 비용은 계속 나가므로 월 지출이 50달러를 넘을 수 있음
   - 다시 켜는 것은 PM(대현)이 원인 확인 후 수동
+  - 예산 동작이 EC2를 멈추려면 `budgets.amazonaws.com`이 맡는 실행 역할(`ec2:StopInstances`, `ssm:StartAutomationExecution` 허용)이 필요. 구축 확인 단계에서 임계값을 낮춰 실제로 중지되는지 시험(6절)
 - 크레딧 잔액 확인: 매주 월요일 PM(대현)이 결제 콘솔에서 확인하고, 사람이 놓치는 경우에 대비해 알림으로 보강
   - 크레딧 차감 후 금액(실제 청구액) 기준 예산을 하나 더 두고 1달러 초과 시 알림. 크레딧이 다 떨어져 실제 청구가 시작되면 바로 알 수 있음
   - 무료 요금제 종료 안내 메일을 받는 주소가 PM(대현) 계정 메일인지 계정 생성 때 확인
 
-#### 크레딧 소진 시점(권고안, 10월 8일 시작 가정, 하루 약 1.40달러)
+#### 크레딧 소진 시점(권고안, 10월 15일 시작 가정, 하루 약 1.40달러)
 
 | 받은 크레딧 | 소진 시점(추정) |
 |---|---|
-| 100달러(가입분만) | 시작 후 약 71일, 12월 18일경 |
-| 200달러(활동 5개 모두) | 시작 후 약 143일, 2027년 2월 28일경. 프로젝트 종료 후 |
+| 100달러(가입분만) | 시작 후 약 71일, 12월 25일경 |
+| 200달러(활동 5개 모두) | 시작 후 약 143일, 2027년 3월 7일경. 프로젝트 종료 후 |
 
-- 활동 크레딧 100달러를 받는 것이 12월 중순 소진을 피하는 가장 싼 방법. 계정 생성 직후 활동 5개를 수행(「미결」)
+- 활동 크레딧 100달러를 받는 것이 12월 하순 소진을 피하는 가장 싼 방법. 계정 생성 직후 활동 5개를 수행(「미결」)
 
 #### 무료 요금제 종료와 계정 폐쇄 위험
 
@@ -558,20 +569,21 @@ s3://signal-data-{접미어}/
 - 저장 항목(EBS·RDS 저장·백업)은 용량 가정값. EBS 볼륨 크기는 생성 때 정하고, RDS 저장 공간은 최소 할당 20GB, S3 덤프는 첫 덤프 뒤 실측해 고침
 - 금투협이 Phase 1에 들어오면 S3에 10월 0.52, 11월 1.04, 12월 1.56달러(추정)가 더해짐
 
-### 10월~12월 누적(10월 8일 시작, 추정)
+### 10월~12월 누적(10월 15일 시작, 추정)
 
 | 월 | 시간 | 권고안 | 권고안(t3.small) | 단일 EC2 상시 | 최소안 |
 |---|---|---|---|---|---|
-| 10월(24일) | 576 | 33.60 | 36.59 | 18.59 | 8.60 |
+| 10월(17일) | 408 | 23.76 | 25.89 | 13.13 | 6.04 |
 | 11월 | 720 | 42.11 | 45.86 | 23.32 | 10.84 |
 | 12월 | 744 | 43.33 | 47.20 | 23.94 | 11.04 |
-| 누적 | 2,040 | 119.04 | 129.65 | 65.85 | 30.48 |
-| 크레딧 200달러 대비 | - | 60% | 65% | 33% | 15% |
-| 크레딧 100달러 대비 | - | 119%, 12월 중순 초과 | 130%, 12월 초 초과 | 66% | 30% |
+| 누적 | 1,872 | 109.20 | 118.95 | 60.39 | 27.92 |
+| 크레딧 200달러 대비 | - | 55% | 59% | 30% | 14% |
+| 크레딧 100달러 대비 | - | 109%, 12월 하순 초과 | 119%, 12월 중순 초과 | 60% | 28% |
 
-- 시간 과금 항목은 시간 비례, 저장 항목(EBS·RDS 저장·백업)은 월 고정값을 10월은 24/31로 비례 계산
+- 시간 과금 항목은 시간 비례(10월 408시간 / 730), 저장 항목(EBS·RDS 저장·백업)은 월 고정값을 10월은 17/31로 비례 계산
+- 금감원 법인 키 신청을 위해 탄력적 IP를 10월 15일 전에 할당하면 그날부터 시간당 0.005달러(공인 IPv4 요금)가 더해짐
 
-- 권고안은 크레딧 200달러를 모두 받으면 12월까지 무료 범위 안. 100달러만 받으면 12월 중순에 소진되므로 11월 말에 유료 전환 필요
+- 권고안은 크레딧 200달러를 모두 받으면 12월까지 무료 범위 안. 100달러만 받으면 12월 하순에 소진되므로 11월 말에 유료 전환 필요
 
 ## 5. 구성 그림
 
@@ -601,7 +613,7 @@ flowchart LR
         BUD["AWS Budgets<br/>50달러 도달 시 EC2 중지"]
     end
 
-    DASH["대시보드<br/>Streamlit Community Cloud<br/>(10월 7일 결정 대기)"]
+    DASH["대시보드<br/>Streamlit Community Cloud<br/>(10월 14일 결정 대기)"]
     TEAM["팀원 4인<br/>AWS CLI"]
 
     EIP --- EC2
@@ -618,9 +630,9 @@ flowchart LR
 
 ## 6. 구축 순서와 Terraform 범위
 
-### 10월 8일~14일 DB 프로비저닝 티켓에 넘길 단계
+### 10월 15일~28일 DB 구축 티켓에 넘길 단계
 
-1. 계정 준비(PM(대현), 계정 생성 직후)
+1. 계정 준비(PM(대현), 계정 생성 직후. 10월 14일 이전 수행 권장)
    - 루트 MFA, IAM 그룹 2개·사용자 4명·MFA
    - 활동 크레딧 5개 수행
    - 무료 요금제 제한(인스턴스 종류, RDS, EventBridge Scheduler 사용 가능 여부) 콘솔에서 확인
@@ -629,15 +641,17 @@ flowchart LR
 3. Terraform 1차 적용: VPC, 서브넷 3개, 인터넷 게이트웨이, 라우팅 표, 보안 그룹 2개, S3 게이트웨이 엔드포인트
 4. Terraform 2차 적용: S3 데이터 버킷(버전 관리, 공개 차단, 버킷 정책, 수명 주기), SSM 파라미터 이름
 5. Terraform 3차 적용: RDS(DB 서브넷 그룹, 파라미터 그룹, 자동 백업 7일, 삭제 보호)
-6. Terraform 4차 적용: EC2 인스턴스 역할, EC2 t4g.small, 탄력적 IP(삭제 방지)와 연결, Budgets EC2 중지 동작
-7. arm64 의존성 검증(10월 8일): EC2에서 팀 Python 의존성 전체를 `pip install --dry-run`으로 확인. 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
+6. Terraform 4차 적용: EC2 인스턴스 역할, EC2 t4g.small, 탄력적 IP(삭제 방지)와 연결, Budgets EC2 중지 동작과 그 실행 역할(`budgets.amazonaws.com`이 맡음, `ec2:StopInstances`·`ssm:StartAutomationExecution` 허용)
+7. arm64 의존성 검증: 10월 14일 리뷰 전. Apple Silicon Mac에서 `docker run --platform linux/arm64`로 `pip install --dry-run` 미리 확인. 구축 때 EC2에서 팀 Python 의존성 전체를 `pip install --dry-run`으로 다시 확인. 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
 8. 탄력적 IP 확정 즉시 금감원 법인 키 신청
 9. 비밀값 입력: AWS CLI로 SSM 파라미터 값 저장
-10. EC2 초기 설정: 스왑 2GB, `poppler-utils`·`curl`·PostgreSQL 클라이언트 설치, Airflow 2.x 설치(공식 제약 파일로 버전 고정, LocalExecutor, 메타데이터 DB = RDS `airflow`). 설치한 Airflow·poppler 버전을 기록하고 poppler 버전을 파서 버전에 반영
-11. DB 초기화: 데이터베이스 2개, 스키마 3개, DB 계정 4개, ERD v2.2 DDL 적용(마이그레이션은 Signal-Pipeline-Design 쪽 코드. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체)
+10. EC2 초기 설정: 스왑 2GB, `poppler-utils`·`curl`·PostgreSQL 클라이언트 설치, Airflow 2.x 설치(공식 제약 파일로 버전 고정, LocalExecutor, 메타데이터 DB = RDS `airflow`). 2GB 메모리용 설정: 웹 서버 워커 1개(`AIRFLOW__WEBSERVER__WORKERS=1`), DAG 해석 프로세스 1개(`AIRFLOW__SCHEDULER__PARSING_PROCESSES=1`), 예시 DAG 끄기(`AIRFLOW__CORE__LOAD_EXAMPLES=False`). 설치한 Airflow·poppler 버전을 기록하고 poppler 버전을 파서 버전에 반영
+11. DB 초기화: 데이터베이스 2개, 스키마 3개, DB 계정 4개, ERD v2.2 DDL 적용(마이그레이션은 signal-pipeline 쪽 코드. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체)
 12. 확인
     - Session Manager로 4인 모두 접속
     - S3 `raw/`: 조건부 쓰기 성공, 같은 키 재쓰기 실패, 조건 없는 쓰기 거부, 삭제 거부
+    - S3 `raw/`: 8MB 넘는 파일 업로드(`put_object(..., IfNoneMatch='*')`로 성공하는지, 멀티파트 업로드가 거부되는지)
+    - Budgets 중지 동작: 임계값을 낮춰 EC2가 실제로 중지되는지 시험한 뒤 50달러로 되돌림
     - S3 `derived/`: 같은 키 덮어쓰기 성공, 이전 버전 남음
     - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, PDF 1건 처리 중 스왑 500MB 이하). 넘으면 t3.small로 전환
     - DART PDF 1건 `pdftotext` 처리 시간 기록
@@ -661,7 +675,7 @@ flowchart LR
 | VPC, 서브넷, 인터넷 게이트웨이, 라우팅 표, 보안 그룹 | 루트 계정 설정, MFA, 결제·크레딧·유료 전환 |
 | S3 데이터 버킷과 정책·수명 주기·버전 관리 | Terraform 상태 버킷 자체 |
 | RDS 인스턴스, DB 서브넷 그룹, 파라미터 그룹 | DB 안의 스키마·표·계정(마이그레이션 코드가 관리) |
-| EC2, 탄력적 IP(삭제 방지)와 인스턴스 연결(별도 자원), 인스턴스 역할, S3 게이트웨이 엔드포인트 | Airflow 설치와 DAG(Signal-Pipeline-Design 쪽) |
+| EC2, 탄력적 IP(삭제 방지)와 인스턴스 연결(별도 자원), 인스턴스 역할, S3 게이트웨이 엔드포인트 | Airflow 설치와 DAG(signal-pipeline 쪽) |
 | IAM 그룹과 정책 | IAM 사용자와 액세스 키(사람별 비밀값이 상태 파일에 남지 않게 콘솔에서 생성) |
 | SSM 파라미터 이름 | SSM 파라미터 값 |
 | AWS Budgets와 EC2 중지 동작 | 금감원 법인 키 신청 |
@@ -675,29 +689,30 @@ flowchart LR
 
 | 질문 | 결정 필요 주체 | 필요 시점 |
 |---|---|---|
-| 대시보드가 DB를 직접 읽는지, 공개 URL을 허용하는지. 권고는 S3 내보내기 파일 + Streamlit Community Cloud(3.9) | PM(대현)·데이터 사이언스(다빈) | 10월 7일 |
+| 대시보드가 DB를 직접 읽는지, 공개 URL을 허용하는지. 권고는 S3 내보내기 파일 + Streamlit Community Cloud(3.9) | PM(대현)·데이터 사이언스(다빈) | 10월 14일 결정 대기(아키텍처 초안 리뷰 때) |
 | 금투협을 Phase 1에 포함하는지(결정 대기 D). S3 용량·비용 표가 바뀜 | 팀 | 10차 미팅 |
 | 무료 요금제 인스턴스 제한(t3.small·t4g.small까지, t3.medium 불가) 공식 확인. 2차 출처 값임 | PM(대현) | AWS 계정 생성 직후 |
 | 무료 요금제에서 RDS db.t4g.micro와 EventBridge Scheduler를 쓸 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
 | 활동 크레딧 5개 수행 여부와 수행 결과(받은 크레딧 금액) | PM(대현) | AWS 계정 생성 후 1주 안 |
 | 유료 전환 시 남은 크레딧이 유지되는지 | PM(대현) | 12월 1일 |
 | AWS Budgets를 크레딧 차감 전 금액 기준으로 설정할 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
-| t4g(ARM)에서 팀 Python 의존성 전체 `pip install --dry-run` 통과 여부, HWP 처리 도구의 arm64 지원. 안 되면 t3.small(월 +3.80달러) | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
-| Airflow 2.x 버전 고정과 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0) 통과 여부. 넘으면 t3.small로 전환 | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
-| Airflow 2.x 계열의 보안 수정 지원이 12월까지 유지되는지 | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
-| 스키마 3개(`raw`·`staging`·`mart`) 배치 승인 | 데이터 엔지니어링·인프라(주영) | 10월 8일 |
+| t4g(ARM)에서 팀 Python 의존성 전체 `pip install --dry-run` 통과 여부, HWP 처리 도구의 arm64 지원. 안 되면 t3.small(월 +3.80달러) | 데이터 엔지니어링·인프라(주영) | 10월 14일(로컬 arm64 확인) |
+| Airflow 2.x 버전 고정과 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0) 통과 여부. 넘으면 t3.small로 전환 | 데이터 엔지니어링·인프라(주영) | 10월 15일~28일 구축 중 |
+| Airflow 2.x 계열의 보안 수정 지원이 12월까지 유지되는지 | 데이터 엔지니어링·인프라(주영) | 10월 14일 |
+| 스키마 3개(`raw`·`staging`·`mart`) 배치 승인 | 데이터 엔지니어링·인프라(주영) | 10월 14일 |
 | `document.distributor_id` 외래 키를 두지 않고 적재 검증으로 대체하는 판단을 ERD에 반영할지 | PM(대현) | 10월 14일 |
 | 평가 자료 접근 분리의 DB 쪽(검토 번호 B4): `eval` 스키마를 둘지. 저장소 쪽은 `eval/` 접두어 + 전용 IAM 역할로 확정 | 팀 | evaluation 표 추가 전 |
-| `eval/` 전용 IAM 역할 이름 | PM(대현) | DB 프로비저닝(10월 8일~14일) 전 |
+| `eval/` 전용 IAM 역할 이름 | PM(대현) | 10월 15일 구축 시작 전 |
 | Standard-IA 단가(`data_go_fund` 스냅숏을 생성 30일 뒤 옮기는 날짜 기준은 10월 4일 확정) | 데이터 엔지니어링·인프라(주영) | 10월 14일(비용 표 확정 전) |
-| 스냅숏형 API 객체(페이지 파일)에도 `.meta.json`을 둘지([원본 보관 규칙 문서](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md) 「미결」). 재수집 파일명(`r2/` 폴더), 퍼센트 인코딩 범위(`/`·`~`·`%`·제어 문자만), 200바이트 초과 해시 접미사(`-h` + SHA-256 앞 12자)는 10월 4일 확정 | 데이터 엔지니어링·인프라(주영) | 수집기 구현 전 |
+| 스냅숏형 API 객체(페이지 파일)에도 `.meta.json`을 둘지([원본 보관 규칙 문서](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/storage-and-failure-rules.md) 「미결」). 재수집 파일명(`r2/` 폴더), 퍼센트 인코딩 범위(`/`·`~`·`%`·제어 문자만), 200바이트 초과 해시 접미사(`-h` + SHA-256 앞 12자)는 10월 4일 확정 | 데이터 엔지니어링·인프라(주영) | 수집기 구현 전 |
+| `exports/runs/{score_run_id}/dashboard_documents.parquet`에 담을 칼럼: 드릴다운에 필요한 칼럼만 vs 문서 전문 포함(전문은 GB 규모 가능, Streamlit 메모리 위험)(3.9) | 데이터 사이언스(다빈)·PM(대현) | 대시보드 구현 전 |
 | 계정 폐쇄 대비 AWS 밖 백업 보관처 | PM(대현) | 11월 15일 |
 | 금감원 법인 키 신청 담당 | PM(대현)이 지정 | 탄력적 IP 할당 직후 |
 
 ## 참고
 
-- 원본·파생 경로 규칙, 워터마크: [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/storage-and-failure-rules.md)
-- 표 목록과 결정 대기 항목: [데이터 테이블·ERD 설계](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/data-model.md) 「v2.2」「표 목록과 한 행의 의미」
-- DBML: [schema.dbml](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/schema.dbml)
-- 실행 환경 요구(poppler·curl·금감원 IP): [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/pipeline-flow.md) 「실행 환경 요구」
-- 금감원 법인 키 조건: [데이터 소스 수집 명세](https://github.com/BOAZ-Signal-Team-26/Signal-Pipeline-Design/blob/main/docs/data-sources.md)
+- 원본·파생 경로 규칙, 워터마크: [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/storage-and-failure-rules.md)
+- 표 목록과 결정 대기 항목: [데이터 테이블·ERD 설계](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-model.md) 「v2.2」「표 목록과 한 행의 의미」
+- DBML: [schema.dbml](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/schema.dbml)
+- 실행 환경 요구(poppler·curl·금감원 IP): [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「실행 환경 요구」
+- 금감원 법인 키 조건: [데이터 소스 수집 명세](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-sources.md)
