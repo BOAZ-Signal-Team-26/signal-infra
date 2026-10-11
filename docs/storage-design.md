@@ -47,7 +47,7 @@
 | DART 투자설명서 PDF 평균 크기 | 1.07MB | 9건 실측 |
 | DART 대상 건수 | 약 6,500건 | 추정. 9월 30일 저장 계층 계획서 기준 |
 | DART 원본 합계 | 약 7GB | 위 두 값의 곱 |
-| 추출 텍스트 합계 | 약 1.6GB(재측정 필요) | 10월 4일 PM 실측: DART 9건 pdftotext 결과 평균 243KB × 약 6,500건. 추출 도구가 pdfplumber(signal-pipeline PR #51)로 바뀌어 pdfplumber 출력으로 다시 잼 |
+| 추출 텍스트 합계 | 약 1.9GB | 10월 11일 PM 실측: DART 501건 pdfplumber(signal-pipeline PR #51, `pdfplumber-0.11_prep-4`) 결과 평균 `text.txt` 271KB + `structure.json` 28KB × 약 6,500건. 10월 4일 pdftotext 9건 기준 추정은 1.6GB |
 | 금투협 원본 | 연 약 250GB | 추정, 미측정. 9월 23일 ERD v2 검토의 cloud 관점 추정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「cloud 관점」). Phase 1 포함 여부 미정(결정 대기 D: 금투협 자료를 Phase 1 수집 범위에 넣을지에 대한 팀 결정) |
 | 전량 재실행 1회 DB 행 수 | 약 8M행, 5~10GB | 추정, ERD v2.1 기준 산정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「cloud 관점」) |
 
@@ -74,7 +74,7 @@
 | RDS 자동 백업 저장 | 할당 저장 공간의 100%까지 무료, 초과분 0.095달러/GB월 | 0달러(7일 보관이 20GB 안) | 공식 |
 | EBS gp3(EC2 루트) | 0.0912달러/GB월(3,000 IOPS·125MB/s 포함) | 20GB 기준 1.82달러. DB 데이터까지 두는 단일 EC2 구성은 40GB 기준 3.65달러 | 공식 |
 | EBS gp2 | 0.114달러/GB월 | 쓰지 않음(gp3가 더 쌈) | 공식 |
-| S3 Standard | 0.025달러/GB월 | DART 8.6GB 기준 0.22달러 | 공식 |
+| S3 Standard | 0.025달러/GB월 | DART 8.9GB 기준 0.22달러 | 공식 |
 | S3 Standard-IA | 0.0138달러/GB월, 꺼내 읽을 때 0.01달러/GB | 스냅숏 이동분. 12월까지 1달러 미만 | 공식 |
 | S3 `backups/` 덤프 | S3 Standard 단가 | 주 1회 덤프 약 1GB(추정) × 35일 보관 ≈ 5개, 가정 35GB 상한 기준 0.88달러 | 공식 단가, 용량 추정 |
 | 데이터 전송(인터넷 송신) | 전 리전 합산 월 100GB 무료, 초과분 0.126달러/GB(10TB까지) | 0달러. 4인 열람·대시보드 내보내기는 월 100GB 안. 수집(수신)은 무료 | 공식 |
@@ -559,7 +559,7 @@ s3://signal-data-{접미어}/
 | EC2 | 15.18 | 18.98 | 15.18 | 2.50 |
 | RDS db.t4g.micro | 18.25 | 18.25 | 0 | 0 |
 | 공인 IPv4(탄력적 IP) | 3.65 | 3.65 | 3.65 | 3.65 |
-| S3(DART 8.6GB) | 0.22 | 0.22 | 0.22 | 0.22 |
+| S3(DART 8.9GB) | 0.22 | 0.22 | 0.22 | 0.22 |
 | NAT 게이트웨이 | 0 | 0 | 0 | 0 |
 | S3 게이트웨이 엔드포인트 | 0(무료) | 0(무료) | 0(무료) | 0(무료) |
 | EBS gp3(EC2 루트·스왑) | 1.82(20GB) | 1.82(20GB) | 3.65(40GB, DB 데이터 포함) | 3.65(40GB, DB 데이터 포함) |
