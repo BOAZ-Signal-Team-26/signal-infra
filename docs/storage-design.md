@@ -4,7 +4,7 @@
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | 초안. 10차 미팅 안건. 10월 6일 단가 확인 반영. 10월 9일 일정 변경과 PR #43 변경 반영 |
+| 상태 | 초안. 10차 미팅 안건. 10월 6일 단가 확인 반영. 10월 9일 일정 변경과 PR #43 변경 반영. 10월 11일 데이터 엔지니어링·인프라(주영) 리뷰 반영(PDF 도구 pdfplumber 전환, 메모리 합격 기준, Airflow 2.x 지원 종료, 파서 버전 형식) |
 | 기준일 | 10월 4일(단가 10월 6일) |
 | 담당 | PM(대현) |
 | 리뷰 | 데이터 엔지니어링·인프라(주영) |
@@ -17,7 +17,7 @@
 ## 1. 요약
 
 - 권고 구성
-  - 서울 리전 VPC 하나에 EC2 t4g.small 1대를 상시 실행. 이 서버에서 Airflow(LocalExecutor), poppler(`pdftotext`), curl 수집을 모두 실행
+  - 서울 리전 VPC 하나에 EC2 t4g.small 1대를 상시 실행. 이 서버에서 Airflow(LocalExecutor), PDF 텍스트 추출(pdfplumber), curl 수집을 모두 실행
   - EC2에 탄력적 IP 1개를 붙여 금감원 법인 키의 요청 IP로 등록. NAT 게이트웨이는 두지 않음
   - DB는 RDS PostgreSQL db.t4g.micro 단일 AZ. 사설 서브넷에 두고 EC2에서만 접속. Airflow 메타데이터 DB도 같은 인스턴스의 별도 데이터베이스로 둠
   - 원문은 S3 버킷 하나에 `raw/`, `derived/`, `runs/`, `assets/`, `eval/`, `exports/`, `backups/` 접두어로 저장. 경로는 원본 보관 규칙 문서의 `RAW_ROOT` 상대경로를 그대로 객체 키로 씀. 버전 관리와 덮어쓰기 금지 정책으로 원본 불변을 보장
@@ -47,7 +47,7 @@
 | DART 투자설명서 PDF 평균 크기 | 1.07MB | 9건 실측 |
 | DART 대상 건수 | 약 6,500건 | 추정. 9월 30일 저장 계층 계획서 기준 |
 | DART 원본 합계 | 약 7GB | 위 두 값의 곱 |
-| 추출 텍스트 합계 | 약 1.6GB | 10월 4일 PM 실측: DART 9건 pdftotext 결과 평균 243KB × 약 6,500건 |
+| 추출 텍스트 합계 | 약 1.6GB(재측정 필요) | 10월 4일 PM 실측: DART 9건 pdftotext 결과 평균 243KB × 약 6,500건. 추출 도구가 pdfplumber(signal-pipeline PR #51)로 바뀌어 pdfplumber 출력으로 다시 잼 |
 | 금투협 원본 | 연 약 250GB | 추정, 미측정. 9월 23일 ERD v2 검토의 cloud 관점 추정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「cloud 관점」). Phase 1 포함 여부 미정(결정 대기 D: 금투협 자료를 Phase 1 수집 범위에 넣을지에 대한 팀 결정) |
 | 전량 재실행 1회 DB 행 수 | 약 8M행, 5~10GB | 추정, ERD v2.1 기준 산정([2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「cloud 관점」) |
 
@@ -93,7 +93,7 @@
 | Airflow 실행 위치 | 3.3 |
 | 백업 범위 | 3.7 |
 | 고정 IP 확보(추가) | 3.4 |
-| PDF 처리(poppler·curl) 실행 위치(추가) | 3.5 |
+| PDF 처리(pdfplumber)·수집(curl) 실행 위치(추가) | 3.5 |
 
 ## 3. 결정 항목
 
@@ -102,7 +102,7 @@
 | 선택지 | 월 비용(추정) | 운영 부담 | 위험 |
 |---|---|---|---|
 | A. RDS PostgreSQL db.t4g.micro, 단일 AZ | 18.25달러 + 저장 공간 20GB 2.62달러 | 낮음. 자동 백업·패치·시점 복구를 AWS가 처리 | 메모리가 작아 큰 조인·정렬이 느릴 수 있음. 무료 요금제에서 사용 가능한지 공식 확인 필요 |
-| B. EC2 안 Docker PostgreSQL | 0달러(EC2 비용에 포함) | 높음. 백업 스크립트·업그레이드·디스크 관리를 직접 함 | t4g.small 메모리 2GB를 Airflow·pdftotext와 나눠 써서 메모리 부족 시 DB까지 함께 멈춤. EC2를 끄면 대시보드도 DB를 못 읽음 |
+| B. EC2 안 Docker PostgreSQL | 0달러(EC2 비용에 포함) | 높음. 백업 스크립트·업그레이드·디스크 관리를 직접 함 | t4g.small 메모리 2GB를 Airflow·PDF 추출과 나눠 써서 메모리 부족 시 DB까지 함께 멈춤. EC2를 끄면 대시보드도 DB를 못 읽음 |
 | C. RDS Multi-AZ | 단일 AZ의 약 2배(추정) | 낮음 | 비용 대비 이득 없음. 12월 종료 프로젝트에 가용성 요구가 없음 |
 
 권고: A
@@ -169,7 +169,7 @@ s3://signal-data-{접미어}/
 | 접두어 | 내용 |
 |---|---|
 | `raw/` | 원본 바이트와 `.meta.json`. 압축하지 않고 받은 바이트 그대로 저장. 원천 키 폴더 규칙과 소스별 모양은 원본 보관 규칙 문서 「파일 경로」 |
-| `derived/` | 추출 텍스트(`text.txt`)와 구조 정보(`structure.json`) 두 파일. 절 텍스트 파일은 없음. 파서 버전 형식 예 `pdftotext-24.02_prep-3` |
+| `derived/` | 추출 텍스트(`text.txt`)와 구조 정보(`structure.json`) 두 파일. 절 텍스트 파일은 없음. 파서 버전 형식 예 `pdfplumber-0.11_prep-4` |
 | `runs/` | 실행 입력·선택·모집단 manifest, 추출 시도 기록(`extraction_attempts.jsonl`), 채점 입력(`documents.parquet`·`excluded.parquet`), LLM 호출 요청·응답. 완료 후 불변. 채점 입력 파일(inputs.json, selection.json, 두 parquet)은 실행 시작 때 한 번 쓰고 바꾸지 않음. 두 parquet의 sha256은 inputs.json에 기록. 실패한 채점 실행을 다시 돌릴 때는 새 score_run_id 발급 |
 | `assets/` | 사전·작성기준 판·지표·프롬프트·형태소 분석기·규칙 파일. 종류는 `dictionaries`, `standards`(작성기준 시행일별 판), `metrics`(지표 정의·가중치·기준집단), `prompts`, `morph`(형태소 분석기 버전·옵션), `rules`(KRX ETF 이름 대응표(10월 4일 추가, 수집 코드가 읽음), 표준문안·표 판정). `config_manifest`가 경로와 sha256을 가리킴 |
 | `eval/` | 접근 제한. 파일럿(`pilot/`), 사람 평가(`human-eval/`), 제재 사례 검증(`sanction-validation/`: 매핑표·대조군). 평가용 사례는 규칙을 만들 때 보지 않도록 하위 폴더를 분리하고, 전용 IAM 역할만 읽을 수 있음 |
@@ -270,28 +270,34 @@ s3://signal-data-{접미어}/
   - 10월~11월은 DAG 개발 기간이라 Airflow 화면을 수시로 씀. 켜고 끄는 방식은 월 약 12.68달러를 아끼지만 개발 속도를 늦춤
   - t4g(ARM)는 t3보다 시간당 약 20% 쌈. 문제가 있으면 B로 바꿈(인스턴스 종류만 바꾸면 됨)
   - DB를 RDS로 분리했으므로 EC2를 꺼도 DB와 대시보드는 영향을 받지 않음
-- Airflow 버전: 2.x 최신 부 버전, LocalExecutor. 설치 시 Airflow 공식 제약 파일(constraints)로 의존성 버전까지 고정
-  - 3.x는 화면·API 서버(api-server), DAG 파일 해석기(dag-processor), 스케줄러(scheduler)가 각각 별도 프로세스로 떠서 2GB를 넘을 위험이 큼
+- Airflow 버전: LocalExecutor. 설치 시 Airflow 공식 제약 파일(constraints)로 의존성 버전까지 고정. 2.x와 3.x 중 어느 쪽을 쓸지는 10월 14일 결정 항목 2와 함께 정함(「미결」)
+  - 2.x는 2026년 4월 22일에 지원 종료(EOL). 마지막 판은 2.11.2이고 이후 보안 수정이 나오지 않음(Apache Airflow 공식 문서 「Supported versions」)
   - 2.x는 웹 서버와 스케줄러 2개 프로세스. DAG 해석은 스케줄러 안에서 함
-  - 2.x 계열의 보안 수정 지원이 12월까지 유지되는지는 확인 필요(「미결」)
+  - 3.x는 지원 중이지만 화면·API 서버(api-server), DAG 파일 해석기(dag-processor), 스케줄러(scheduler)가 각각 별도 프로세스로 떠서 2GB를 넘을 위험이 큼
+  - 선택지
+    - 2.11.2 유지: 아래 2GB 설정 그대로 씀. 보안 수정이 없는 위험을 감수함. 인바운드가 없고 화면은 Session Manager 포트 전달로만 열어(3.8) 노출은 작음
+    - 3.x 시험: 지원을 받음. 2GB 합격 기준을 넘으면 메모리 4GB 인스턴스가 필요함
+    - 메모리 4GB 인스턴스(3.3 D): 3.x를 돌릴 여유가 생김. 무료 요금제에서 사용 불가(추정), 비용 2배
 - 2GB 메모리 안에서 돌리기 위한 설정
   - 공식 docker-compose 예시는 Celery·Redis 컨테이너를 함께 띄우므로 그대로 쓰지 않음
   - 메타데이터 DB: RDS의 `airflow` 데이터베이스. EC2에 PostgreSQL을 띄우지 않음
   - 전체 동시 작업 수(parallelism) 2, DAG당 동시 작업 수(max_active_tasks_per_dag) 2
   - 스왑 파일 2GB를 루트 볼륨에 만듦. 메모리 부족 시 프로세스가 강제 종료되는 대신 느려짐
-  - `pdftotext`는 작업 안에서 하위 프로세스로 한 번에 1개씩 실행
+  - PDF 추출은 파일마다 별도 프로세스로 실행함(signal-pipeline PR #51, 기본 동시 4개). 추출 병렬 수를 전체 동시 작업 수(2)에 맞춤
 - 구축 중 실측(10월 15일~28일)과 합격 기준(제안)
   - 유휴 상태(웹 서버·스케줄러만 실행, DAG 실행 없음)의 사용 메모리 1.2GB 이하, 스왑 사용 0
-  - DART PDF 1건 처리 중 스왑 사용 500MB 이하
+  - 추출 병렬 2로 DART PDF 50건을 연속 처리하는 동안 스왑 사용 500MB 이하
+  - 같은 실행에서 300초 시간 제한을 넘는 파일 0건
+  - 이유: pdfplumber는 파이썬 프로세스 안에서 쪽을 읽어 pdftotext와 메모리 사용 양상이 다름. 1건 처리 중 최대 메모리는 아직 실측 전
   - 기준을 넘으면 설정을 더 줄이지 않고 바로 t3.small(x86)로 전환. 같은 2GB이므로 메모리 문제는 그대로 남고, 그때는 3.3 D(t3.medium)를 유료 전환과 함께 검토
 - ARM(arm64) 위험
   - HWP 처리: 분쟁조정결정례 첨부가 HWP. 현재 조사 스크립트(`hwp_text.py`)는 표준 라이브러리만 쓰지만 이후 외부 HWP 도구를 쓰면 arm64 빌드가 없을 수 있음
   - arm64용 미리 빌드된 패키지(wheel)가 없는 Python 의존성은 설치 중 소스 빌드가 필요하고 2GB에서 실패할 수 있음
   - 대응: 구축 첫 단계에서 arm64 인스턴스에 `pip install --dry-run`으로 팀 의존성 전체를 검증(6절). 실패하면 t3.small로 시작
 - 파서 버전 규칙
-  - `file_extraction.parser_version`에 poppler 버전을 포함(형식 예: `pdftotext-{poppler 버전}-p{전처리 버전}`). 형식은 ERD 적재 검증 규칙 17(소문자·숫자·`.`·`-`·`_`만)을 따름
-  - 이유: CPU 아키텍처나 poppler 버전이 바뀌면 같은 PDF의 `pdftotext` 출력이 달라질 수 있음. 버전이 키에 없으면 다른 출력이 같은 `derived/` 경로를 차지함
-  - t4g에서 t3로 바꾸는 경우도 poppler 버전이 달라지면 새 파서 버전으로 다시 추출
+  - `file_extraction.parser_version`은 signal-pipeline PR #43 원본 보관 규칙 형식 `{도구}-{주.부 버전}_prep-{전처리 버전}`을 따름(예: `pdfplumber-0.11_prep-4`). 형식은 ERD 적재 검증 규칙 17(소문자·숫자·`.`·`-`·`_`만)을 따름
+  - 이유: CPU 아키텍처나 pdfplumber 버전이 바뀌면 같은 PDF의 추출 출력이 달라질 수 있음. 버전이 키에 없으면 다른 출력이 같은 `derived/` 경로를 차지함
+  - t4g에서 t3로 바꾸는 경우도 pdfplumber 버전이 달라지면 새 파서 버전으로 다시 추출
 - C로 전환할 때
   - EventBridge Scheduler 일정 2개: EC2 시작, EC2 중지
   - 탄력적 IP는 인스턴스를 껐다 켜도 그대로 유지되므로 금감원 IP 등록에 영향 없음
@@ -300,6 +306,7 @@ s3://signal-data-{접미어}/
 
 ### 3.4 고정 IP(금감원 법인 키)
 
+- 금감원 제재 정기 수집은 보류 중(10월 7일 10차 미팅에서 게시판 크롤러 보류, 재개는 10월 14일 PM(대현) 검토 결과에 따름). 법인 키가 필요한 수집이 Phase 1에 남는지는 그 뒤 정해짐. 공인 IPv4 요금은 탄력적 IP 여부와 관계없이 같아 권고는 그대로 둠
 - 금감원 법인 키는 요청 IP 등록이 필요함. 수집 서버 IP가 정해지기 전에 신청하면 재신청 필요([데이터 소스 수집 명세](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-sources.md) 「금감원」)
 
 | 선택지 | 월 비용(추정) | 운영 부담 | 위험 |
@@ -319,11 +326,11 @@ s3://signal-data-{접미어}/
   - 탄력적 IP는 인스턴스에 붙어 있든 아니든 같은 요금이 나감(공인 IPv4 요금)
 - RDS에는 공인 IP를 붙이지 않음. 추가 IPv4 요금도 없음
 
-### 3.5 PDF 처리(poppler·curl) 실행 위치
+### 3.5 PDF 처리(pdfplumber)·수집(curl) 실행 위치
 
 | 선택지 | 비용 | 운영 부담 | 위험 |
 |---|---|---|---|
-| A. Airflow와 같은 EC2 안 | 추가 없음 | 낮음. 패키지 설치 1회 | 메모리를 Airflow와 나눔. 동시 1개로 제한 |
+| A. Airflow와 같은 EC2 안 | 추가 없음 | 낮음. 패키지 설치 1회 | 메모리를 Airflow와 나눔. 추출 병렬 2로 제한 |
 | B. Lambda 컨테이너 이미지 | 단가 미확인 | 높음. 이미지 빌드·ECR·VPC 안 RDS 접속 설정 | VPC 안 Lambda가 인터넷이나 S3에 닿으려면 NAT 게이트웨이나 VPC 엔드포인트가 추가로 필요. 출구 IP가 고정되지 않아 수집(curl)은 옮길 수 없음 |
 
 권고: A
@@ -331,8 +338,8 @@ s3://signal-data-{접미어}/
 - 근거
   - 6,500건, 약 7GB는 EC2 한 대에서 순차 처리할 수 있는 양. 처리 시간은 구축 때 실측
   - 금투협 수집은 curl로 해야 하고(Python `urllib`는 응답이 중간에 잘림), 금감원 수집은 고정 IP가 필요하므로 수집은 어차피 EC2에서 돌아야 함. 한 곳에 모으면 배포 대상이 하나
-- 설치 대상: `poppler-utils`(`pdftotext` 포함), `curl`. 패키지 목록은 signal-pipeline 저장소 [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「실행 환경 요구」와 맞춤
-- 처리 흐름: S3 `raw/`에서 임시 디렉터리로 내려받기 → `pdftotext` → `derived/`에 올리기 → DB `file_extraction` 기록 → 임시 파일 삭제
+- 설치 대상: pdfplumber(signal-pipeline 패키지 의존성으로 설치), `curl`. poppler는 생산 코드에서 쓰지 않음. 패키지 목록은 signal-pipeline 저장소 [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「실행 환경 요구」와 맞춤
+- 처리 흐름: S3 `raw/`에서 임시 디렉터리로 내려받기 → pdfplumber 추출(파일마다 별도 프로세스, 300초 시간 제한) → `derived/`에 `text.txt`·`structure.json` 올리기 → DB `file_extraction` 기록 → 임시 파일 삭제
 - 금투협이 들어와 처리량이 크게 늘면 그때 B를 다시 검토
 
 ### 3.6 3계층(PostgreSQL 스키마)과 ERD v2.2 표 배치
@@ -599,7 +606,7 @@ flowchart LR
     subgraph AWS["AWS 서울 리전"]
         subgraph VPC["VPC"]
             subgraph PUB["공개 서브넷 (ap-northeast-2a)"]
-                EC2["EC2 t4g.small<br/>Airflow LocalExecutor<br/>poppler·curl<br/>인바운드 없음"]
+                EC2["EC2 t4g.small<br/>Airflow LocalExecutor<br/>pdfplumber·curl<br/>인바운드 없음"]
                 EIP(["탄력적 IP"])
             end
             subgraph PRIV["사설 서브넷 2개 (2a, 2c)"]
@@ -645,7 +652,7 @@ flowchart LR
 7. arm64 의존성 검증: 10월 14일 리뷰 전. Apple Silicon Mac에서 `docker run --platform linux/arm64`로 `pip install --dry-run` 미리 확인. 구축 때 EC2에서 팀 Python 의존성 전체를 `pip install --dry-run`으로 다시 확인. 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
 8. 탄력적 IP 확정 즉시 금감원 법인 키 신청
 9. 비밀값 입력: AWS CLI로 SSM 파라미터 값 저장
-10. EC2 초기 설정: 스왑 2GB, `poppler-utils`·`curl`·PostgreSQL 클라이언트 설치, Airflow 2.x 설치(공식 제약 파일로 버전 고정, LocalExecutor, 메타데이터 DB = RDS `airflow`). 2GB 메모리용 설정: 웹 서버 워커 1개(`AIRFLOW__WEBSERVER__WORKERS=1`), DAG 해석 프로세스 1개(`AIRFLOW__SCHEDULER__PARSING_PROCESSES=1`), 예시 DAG 끄기(`AIRFLOW__CORE__LOAD_EXAMPLES=False`). 설치한 Airflow·poppler 버전을 기록하고 poppler 버전을 파서 버전에 반영
+10. EC2 초기 설정: 스왑 2GB, `curl`·PostgreSQL 클라이언트 설치, Airflow 설치(3.3에서 정한 버전, 공식 제약 파일로 버전 고정, LocalExecutor, 메타데이터 DB = RDS `airflow`). 2GB 메모리용 설정: 웹 서버 워커 1개(`AIRFLOW__WEBSERVER__WORKERS=1`), DAG 해석 프로세스 1개(`AIRFLOW__SCHEDULER__PARSING_PROCESSES=1`), 예시 DAG 끄기(`AIRFLOW__CORE__LOAD_EXAMPLES=False`). 설치한 Airflow·pdfplumber 버전을 기록하고 pdfplumber 버전을 파서 버전에 반영
 11. DB 초기화: 데이터베이스 2개, 스키마 3개, DB 계정 4개, ERD v2.2 DDL 적용(마이그레이션은 signal-pipeline 쪽 코드. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체)
 12. 확인
     - Session Manager로 4인 모두 접속
@@ -653,8 +660,8 @@ flowchart LR
     - S3 `raw/`: 8MB 넘는 파일 업로드(`put_object(..., IfNoneMatch='*')`로 성공하는지, 멀티파트 업로드가 거부되는지)
     - Budgets 중지 동작: 임계값을 낮춰 EC2가 실제로 중지되는지 시험한 뒤 50달러로 되돌림
     - S3 `derived/`: 같은 키 덮어쓰기 성공, 이전 버전 남음
-    - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, PDF 1건 처리 중 스왑 500MB 이하). 넘으면 t3.small로 전환
-    - DART PDF 1건 `pdftotext` 처리 시간 기록
+    - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, 추출 병렬 2로 DART PDF 50건 연속 처리 중 스왑 500MB 이하, 300초 초과 파일 0건). 넘으면 t3.small로 전환하고, 같은 2GB이므로 추출 병렬 1로도 시험
+    - 위 50건 연속 처리에서 파일별 pdfplumber 처리 시간과 최대 메모리 기록
 
 ### 프로젝트 종료 절차
 
@@ -697,8 +704,8 @@ flowchart LR
 | 유료 전환 시 남은 크레딧이 유지되는지 | PM(대현) | 12월 1일 |
 | AWS Budgets를 크레딧 차감 전 금액 기준으로 설정할 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
 | t4g(ARM)에서 팀 Python 의존성 전체 `pip install --dry-run` 통과 여부, HWP 처리 도구의 arm64 지원. 안 되면 t3.small(월 +3.80달러) | 데이터 엔지니어링·인프라(주영) | 10월 14일(로컬 arm64 확인) |
-| Airflow 2.x 버전 고정과 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0) 통과 여부. 넘으면 t3.small로 전환 | 데이터 엔지니어링·인프라(주영) | 10월 15일~28일 구축 중 |
-| Airflow 2.x 계열의 보안 수정 지원이 12월까지 유지되는지 | 데이터 엔지니어링·인프라(주영) | 10월 14일 |
+| Airflow 버전과 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0, PDF 50건 연속 처리 중 스왑 500MB 이하·300초 초과 0건) 통과 여부. 넘으면 t3.small로 전환 | 데이터 엔지니어링·인프라(주영) | 10월 15일~28일 구축 중 |
+| Airflow 버전: 2.11.2 유지(2026년 4월 22일 지원 종료, 보안 수정 없음) / 3.x 시험(2GB 초과 위험) / 메모리 4GB 인스턴스(3.3) | PM(대현)·데이터 엔지니어링·인프라(주영) | 10월 14일(결정 항목 2와 함께) |
 | 스키마 3개(`raw`·`staging`·`mart`) 배치 승인 | 데이터 엔지니어링·인프라(주영) | 10월 14일 |
 | `document.distributor_id` 외래 키를 두지 않고 적재 검증으로 대체하는 판단을 ERD에 반영할지 | PM(대현) | 10월 14일 |
 | 평가 자료 접근 분리의 DB 쪽(검토 번호 B4): `eval` 스키마를 둘지. 저장소 쪽은 `eval/` 접두어 + 전용 IAM 역할로 확정 | 팀 | evaluation 표 추가 전 |
