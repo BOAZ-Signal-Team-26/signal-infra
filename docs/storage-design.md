@@ -9,7 +9,7 @@
 | 담당 | PM(대현) |
 | 리뷰 | 데이터 엔지니어링·인프라(주영) |
 | 입력 | 9월 30일 저장 계층 계획서 초안, 10월 4일 PM 확인 결과, ERD v2.2(signal-pipeline 저장소 `docs/#42-erd-v2.2` 브랜치, PR #43. 병합 전까지 이 브랜치가 기준) |
-| 다음 단계 | 아키텍처 초안 리뷰(10월 14일), DB 구축(10월 15일~28일, 쉬는 기간)이 이 문서를 전제로 함. 일정은 10월 9일 PM(대현) 결정 |
+| 다음 단계 | 이 문서를 전제로 Week 6(10월 15일~28일)에 PM(대현)이 AWS 계정 준비와 Terraform 코드·`terraform plan`을 작성하고, Week 7(10월 29일~11월 11일)에 실제 생성(`terraform apply`)함. 아키텍처 초안은 이 문서의 권고 구성으로 대체함. 일정은 10월 14일 11차 미팅 결정 |
 
 - 가격은 10월 6일 AWS 가격 페이지의 서울 리전 공식 가격 데이터로 확인함(2절 「가격」). 무료 요금제 인스턴스 제한만 2차 출처 「추정」으로 남음
 - 10월 4일 초안에서 「미확인」이던 요금(EBS 볼륨, RDS 저장 공간, 백업 저장 공간, 데이터 전송)은 단가와 용량 가정을 넣어 비용 표 합계에 포함함
@@ -480,7 +480,7 @@ s3://signal-data-{접미어}/
 
 ### 3.9 대시보드 연결
 
-- 대시보드가 DB를 직접 읽을지, 공개 URL을 허용할지는 PM(대현)·데이터 사이언스(다빈)가 10월 14일 결정 대기(아키텍처 초안 리뷰 때)
+- 대시보드가 DB를 직접 읽을지, 공개 URL을 허용할지는 PM(대현)·데이터 사이언스(다빈)가 Week 7에 결정(10월 14일 11차 미팅에서 미룸)
 
 | 선택지 | 비용 | DB 연결 | 위험 |
 |---|---|---|---|
@@ -490,7 +490,7 @@ s3://signal-data-{접미어}/
 | C. Grafana Cloud 무료(3명) | 무료 | A와 같이 외부에서 RDS에 접속해야 함 | DB 공개 |
 | D. QuickSight | 비쌈(단가 미확인) | VPC 연결 가능 | 예산 초과 |
 
-권고: A'(10월 14일 아키텍처 초안 리뷰 때 결정 대기)
+권고: A'(Week 7 결정 대기)
 
 - 근거
   - RDS를 인터넷에 열지 않으면서 무료로 4인 이상이 볼 수 있는 유일한 선택지
@@ -620,7 +620,7 @@ flowchart LR
         BUD["AWS Budgets<br/>50달러 도달 시 EC2 중지"]
     end
 
-    DASH["대시보드<br/>Streamlit Community Cloud<br/>(10월 14일 결정 대기)"]
+    DASH["대시보드<br/>Streamlit Community Cloud<br/>(Week 7 결정 대기)"]
     TEAM["팀원 4인<br/>AWS CLI"]
 
     EIP --- EC2
@@ -637,9 +637,9 @@ flowchart LR
 
 ## 6. 구축 순서와 Terraform 범위
 
-### 10월 15일~28일 DB 구축 티켓에 넘길 단계
+### DB 구축 티켓에 넘길 단계 (1번은 Week 6, 2번부터는 Week 7)
 
-1. 계정 준비(PM(대현), 계정 생성 직후. 10월 14일 이전 수행 권장)
+1. 계정 준비(PM(대현), Week 6에 계정 생성 직후 수행)
    - 루트 MFA, IAM 그룹 2개·사용자 4명·MFA
    - 활동 크레딧 5개 수행
    - 무료 요금제 제한(인스턴스 종류, RDS, EventBridge Scheduler 사용 가능 여부) 콘솔에서 확인
@@ -649,7 +649,7 @@ flowchart LR
 4. Terraform 2차 적용: S3 데이터 버킷(버전 관리, 공개 차단, 버킷 정책, 수명 주기), SSM 파라미터 이름
 5. Terraform 3차 적용: RDS(DB 서브넷 그룹, 파라미터 그룹, 자동 백업 7일, 삭제 보호)
 6. Terraform 4차 적용: EC2 인스턴스 역할, EC2 t4g.small, 탄력적 IP(삭제 방지)와 연결, Budgets EC2 중지 동작과 그 실행 역할(`budgets.amazonaws.com`이 맡음, `ec2:StopInstances`·`ssm:StartAutomationExecution` 허용)
-7. arm64 의존성 검증: 10월 14일 리뷰 전. Apple Silicon Mac에서 `docker run --platform linux/arm64`로 `pip install --dry-run` 미리 확인. 구축 때 EC2에서 팀 Python 의존성 전체를 `pip install --dry-run`으로 다시 확인. 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
+7. arm64 의존성 검증: Week 7 적용 전. Apple Silicon Mac에서 `docker run --platform linux/arm64`로 `pip install --dry-run` 미리 확인. 구축 때 EC2에서 팀 Python 의존성 전체를 `pip install --dry-run`으로 다시 확인. 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
 8. 탄력적 IP 확정 즉시 금감원 법인 키 신청
 9. 비밀값 입력: AWS CLI로 SSM 파라미터 값 저장
 10. EC2 초기 설정: 스왑 2GB, `curl`·PostgreSQL 클라이언트 설치, Airflow 설치(3.3에서 정한 버전, 공식 제약 파일로 버전 고정, LocalExecutor, 메타데이터 DB = RDS `airflow`). 2GB 메모리용 설정: 웹 서버 워커 1개(`AIRFLOW__WEBSERVER__WORKERS=1`), DAG 해석 프로세스 1개(`AIRFLOW__SCHEDULER__PARSING_PROCESSES=1`), 예시 DAG 끄기(`AIRFLOW__CORE__LOAD_EXAMPLES=False`). 설치한 Airflow·pdfplumber 버전을 기록하고 pdfplumber 버전을 파서 버전에 반영
@@ -696,7 +696,7 @@ flowchart LR
 
 | 질문 | 결정 필요 주체 | 필요 시점 |
 |---|---|---|
-| 대시보드가 DB를 직접 읽는지, 공개 URL을 허용하는지. 권고는 S3 내보내기 파일 + Streamlit Community Cloud(3.9) | PM(대현)·데이터 사이언스(다빈) | 10월 14일 결정 대기(아키텍처 초안 리뷰 때) |
+| 대시보드가 DB를 직접 읽는지, 공개 URL을 허용하는지. 권고는 S3 내보내기 파일 + Streamlit Community Cloud(3.9) | PM(대현)·데이터 사이언스(다빈) | Week 7 (10월 14일 11차 미팅에서 미룸) |
 | 금투협을 Phase 1에 포함하는지(결정 대기 D). S3 용량·비용 표가 바뀜 | 팀 | 10차 미팅 |
 | 무료 요금제 인스턴스 제한(t3.small·t4g.small까지, t3.medium 불가) 공식 확인. 2차 출처 값임 | PM(대현) | AWS 계정 생성 직후 |
 | 무료 요금제에서 RDS db.t4g.micro와 EventBridge Scheduler를 쓸 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
