@@ -720,5 +720,5 @@ flowchart LR
 - 원본·파생 경로 규칙, 워터마크: [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/storage-and-failure-rules.md)
 - 표 목록과 결정 대기 항목: [데이터 테이블·ERD 설계](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-model.md) 「v2.2」「표 목록과 한 행의 의미」
 - DBML: [schema.dbml](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/schema.dbml)
-- 실행 환경 요구(curl·금감원 IP. 같은 절의 poppler·`pdftotext`는 signal-pipeline PR #51 pdfplumber 전환 전 내용): [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「실행 환경 요구」
+- 실행 환경 요구(pdfplumber·curl·금감원 IP): [2단계 데이터 파이프라인 Flow 설계 입력](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/pipeline-flow.md) 「실행 환경 요구」
 - 금감원 법인 키 조건: [데이터 소스 수집 명세](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/data-sources.md)
