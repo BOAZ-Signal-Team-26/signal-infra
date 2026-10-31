@@ -77,3 +77,6 @@ Notion 티켓·회의록·문서, GitHub PR·이슈 본문, 저장소 안 문서
 - 인프라 변경은 배포 전 인프라 담당 리뷰 필수(`README.md` 「Ownership」)
 - PR 템플릿 「영향 범위(Terraform)」에 `terraform plan` 결과와 보호 리소스 삭제·교체 여부 기재
 - CodeRabbit이 dev 대상 PR을 한국어로 리뷰(`.coderabbit.yaml`)
+- AWS 무료 크레딧(가입·활동 보상)을 지키기 위한 금지 항목(10월 31일 결정)
+  - AWS Organizations, IAM Identity Center, Control Tower를 켜지 않음. Organizations에 들어간 계정은 크레딧이 바로 만료되고 더 받을 수 없음(AWS Free Tier 약관). Identity Center를 켜면 Organizations가 자동으로 만들어짐. 팀원 접근은 IAM 사용자로 함
+  - 크레딧으로 결제되지 않는 항목을 만들지 않음: Savings Plans·예약 인스턴스(Reserved Instances)의 선결제, AWS Marketplace 구매(Marketplace AMI 포함), Enterprise 계열 지원 플랜. 카드로 바로 청구됨(AWS 프로모션 크레딧 약관). 꼭 필요하면 PR 본문에 금액과 이유를 적고 PM 승인을 받음

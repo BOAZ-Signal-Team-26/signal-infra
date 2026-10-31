@@ -6,3 +6,12 @@ reviews:
     # 기본 브랜치(main) 외에 리뷰할 대상 브랜치. 정규식이라 ^...$로 정확히 dev만
     base_branches:
       - "^dev$"
+  # AWS 무료 크레딧을 잃거나 크레딧 밖 청구가 생기는 리소스를 리뷰에서 잡는다(CLAUDE.md 「이 저장소 작업 지침」)
+  path_instructions:
+    - path: "**/*.tf"
+      instructions: |
+        다음 리소스·설정이 있으면 반드시 지적한다. 크레딧이 만료되거나 크레딧으로 결제되지 않는 항목이다.
+        - AWS Organizations(aws_organizations_*), IAM Identity Center(aws_ssoadmin_*, aws_identitystore_*), Control Tower(aws_controltower_*)
+        - Savings Plans, 예약 인스턴스(aws_rds_reserved_instance 등 선결제·약정 구매)
+        - AWS Marketplace AMI·구독(Marketplace 제품 코드가 붙은 AMI를 data "aws_ami"로 고르는 경우 포함)
+        - AWS Support 플랜 변경
