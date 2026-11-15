@@ -2,9 +2,12 @@
 # 6절 6: EC2 인스턴스 역할, 탄력적 IP(해제 거부 정책)와 연결, EC2 t4g.small
 #
 # 값(11월 8일 결정)
-# - 역할·인스턴스 프로필 signal-pipeline-ec2: AmazonSSMManagedInstanceCore + 버킷 읽기·쓰기(eval/ 제외) + SSM /signal/* 읽기
+# - 역할·인스턴스 프로필 signal-pipeline-ec2: AmazonSSMManagedInstanceCore + 버킷 읽기·쓰기(eval/ 제외) + SSM /signal/* 읽기.
+#   EC2가 쓰지 않는 DB 비밀번호(master·owner·reader)는 명시적으로 거부한다. AmazonSSMManagedInstanceCore가
+#   ssm:GetParameter(s)를 모든 자원에 허용하므로 Allow 범위를 좁히는 것만으로는 막히지 않는다(11월 15일 PR #35 리뷰)
 # - 탄력적 IP signal-eip. 할당과 연결을 나눔. IAM 정책 signal-protect-eip로 이 IP의 해제(ec2:ReleaseAddress)를 거부하고
-#   그룹 signal-team과 관리자 사용자에 붙인다. 사용자 이름은 저장소에 적지 않고 PROTECT_EIP_USERS로 받는다
+#   그룹 signal-team과 관리자 사용자에 붙인다. 사용자 이름은 저장소에 적지 않고 PROTECT_EIP_USERS로 받는다.
+#   정책이 이미 있고 할당 ID가 바뀌었으면 새 정책 버전을 기본으로 만든다(버전이 5개면 가장 오래된 것을 지움)
 # - 공인 IP는 SSM /signal/infra/eip_public_ip(String)에 적는다. 저장소에는 적지 않는다
 # - EC2 signal-airflow: Amazon Linux 2023 표준 arm64(SSM 공개 파라미터로 최신 AMI), t4g.small, 공개 서브넷 2a,
 #   signal-ec2-sg, gp3 20GB, IMDSv2 필수·홉 제한 1, SSH 키 없음, user data 없음
@@ -14,7 +17,7 @@
 # 사용: PROTECT_EIP_USERS="<관리자 IAM 사용자> <관리자 IAM 사용자>" scripts/aws/04-ec2.sh   (01·02 뒤. 다시 실행해도 됨)
 
 source "$(dirname "$0")/lib.sh"
-require aws
+require aws jq
 
 ROLE=signal-pipeline-ec2
 AMI_PARAM="${AMI_PARAM:-/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}"
@@ -69,7 +72,22 @@ ensure_protect_policy() {
   doc=$(render "$POLICY_DIR/protect-eip.json" "REGION=$AWS_REGION" \
     "ACCOUNT_ID=$(account_id)" "ALLOCATION_ID=$alloc")
   if aws iam get-policy --policy-arn "$arn" >/dev/null 2>&1; then
-    log "정책 있음: signal-protect-eip"
+    local current_version current oldest
+    current_version=$(aws iam get-policy --policy-arn "$arn" --query Policy.DefaultVersionId --output text)
+    current=$(aws iam get-policy-version --policy-arn "$arn" --version-id "$current_version" \
+      --query PolicyVersion.Document --output json | jq -S -c .)
+    if [[ "$current" == "$(printf '%s' "$doc" | jq -S -c .)" ]]; then
+      log "정책 있음: signal-protect-eip(내용 같음)"
+    else
+      if [[ "$(aws iam list-policy-versions --policy-arn "$arn" --query 'length(Versions)' --output text)" -ge 5 ]]; then
+        oldest=$(aws iam list-policy-versions --policy-arn "$arn" \
+          --query 'sort_by(Versions[?!IsDefaultVersion], &CreateDate)[0].VersionId' --output text)
+        aws iam delete-policy-version --policy-arn "$arn" --version-id "$oldest"
+        log "정책 버전이 5개라 가장 오래된 ${oldest}를 지움"
+      fi
+      aws iam create-policy-version --policy-arn "$arn" --policy-document "$doc" --set-as-default >/dev/null
+      log "정책 갱신: signal-protect-eip(할당 ID ${alloc}를 기본 버전으로)"
+    fi
   else
     # shellcheck disable=SC2046
     aws iam create-policy --policy-name signal-protect-eip --policy-document "$doc" \
@@ -106,23 +124,31 @@ ensure_instance() {
   ami=$(aws ssm get-parameter --name "$AMI_PARAM" --query Parameter.Value --output text)
   root=$(aws ec2 describe-images --image-ids "$ami" --query 'Images[0].RootDeviceName' --output text)
   log "AMI: $ami ($AMI_PARAM, 루트 장치 $root)"
-  local attempt
+  local attempt token err
+  # 같은 토큰으로 재시도하면 서버에서 이미 만든 인스턴스를 돌려주고 새로 만들지 않는다(멱등 토큰)
+  token="signal-airflow-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  err=$(mktemp "${TMPDIR:-/tmp}/signal-run-instances.XXXXXX")
   for attempt in 1 2 3 4 5 6; do
     # 새로 만든 인스턴스 프로필은 몇 초 뒤에야 run-instances가 찾는다
-    if id=$(aws ec2 run-instances --image-id "$ami" --instance-type t4g.small \
+    if id=$(aws ec2 run-instances --client-token "$token" --image-id "$ami" --instance-type t4g.small \
       --subnet-id "$subnet" --security-group-ids "$sg" \
       --iam-instance-profile "Name=$ROLE" \
       --metadata-options HttpTokens=required,HttpPutResponseHopLimit=1,HttpEndpoint=enabled \
       --block-device-mappings "DeviceName=$root,Ebs={VolumeSize=20,VolumeType=gp3,DeleteOnTermination=true,Encrypted=true}" \
       --credit-specification CpuCredits=standard \
       --tag-specifications "$(tag_spec instance signal-airflow)" "$(tag_spec volume signal-airflow-root)" \
-      --count 1 --query 'Instances[0].InstanceId' --output text 2>/dev/null); then
+      --count 1 --query 'Instances[0].InstanceId' --output text 2>"$err"); then
       break
     fi
-    [[ $attempt -lt 6 ]] || die "run-instances가 계속 실패한다. 오류는 같은 명령을 직접 실행해 확인한다"
-    log "run-instances 실패, 10초 뒤 다시 시도($attempt/6)"
+    log "run-instances 실패($attempt/6): $(tail -n 1 "$err")"
+    [[ $attempt -lt 6 ]] || {
+      rm -f "$err"
+      die "run-instances가 계속 실패한다"
+    }
+    log "10초 뒤 같은 멱등 토큰으로 다시 시도"
     sleep 10
   done
+  rm -f "$err"
   aws ec2 wait instance-running --instance-ids "$id"
   log "인스턴스 만듦: signal-airflow $id"
   printf '%s' "$id"

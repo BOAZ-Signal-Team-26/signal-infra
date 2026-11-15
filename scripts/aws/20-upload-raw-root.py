@@ -10,10 +10,14 @@
 - derived/도 같은 방식으로 쓴다(덮어쓰지 않음). 다른 내용이 이미 있으면 실패로 남기고 사람이 판단한다
 - state/(워터마크 임시 파일)는 올리지 않는다(DB source_watermark로 옮김, architecture.md 3-3)
 - 8MB를 넘는 파일도 멀티파트 없이 한 번에 올린다(put_object 한도 5GB)
+- 저장된 체크섬은 전체 객체 체크섬(ChecksumType FULL_OBJECT)일 때만 쓴다. 다른 도구로 멀티파트 업로드한 객체의
+  합성 체크섬(`xxx-N`)은 바이트 해시가 아니므로 본문을 받아 해시로 비교한다
+- 네트워크 오류(시간 초과, 연결 실패)도 그 파일만 error로 기록하고 나머지를 계속 올린다
+- 대상 파일이 0개면 --raw-root를 잘못 준 것으로 보고 종료 코드 1
 
 사용(원본 파일이 있는 장비에서, AWS 자격 증명 필요)
-  uv run --with 'boto3>=1.35.20' python scripts/aws/20-upload-raw-root.py --raw-root <로컬 경로> --bucket <버킷 이름> --dry-run
-  uv run --with 'boto3>=1.35.20' python scripts/aws/20-upload-raw-root.py --raw-root <로컬 경로> --bucket <버킷 이름>
+  uv run --with 'boto3>=1.36.0' python scripts/aws/20-upload-raw-root.py --raw-root <로컬 경로> --bucket <버킷 이름> --dry-run
+  uv run --with 'boto3>=1.36.0' python scripts/aws/20-upload-raw-root.py --raw-root <로컬 경로> --bucket <버킷 이름>
   버킷 이름은 02-s3.sh가 출력한 RAW_ROOT의 이름(signal-data-{계정 ID}-{리전}-an)
 """
 
@@ -27,7 +31,7 @@ from pathlib import Path
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 PREFIXES = ("raw", "derived", "runs")
 
@@ -64,6 +68,8 @@ def upload(s3, bucket: str, root: Path, path: Path) -> Result:
             ChecksumSHA256=base64.b64encode(digest).decode(),
         )
         return Result(key, "uploaded")
+    except BotoCoreError as e:
+        return Result(key, "error", f"{type(e).__name__} {e}")
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
         status = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
@@ -76,12 +82,12 @@ def upload(s3, bucket: str, root: Path, path: Path) -> Result:
     try:
         head = s3.head_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
         stored = head.get("ChecksumSHA256")
-        if stored is None:
+        if stored is not None and head.get("ChecksumType") == "FULL_OBJECT":
+            same = base64.b64decode(stored) == digest
+        else:
             body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
             same = hashlib.sha256(body).digest() == digest
-        else:
-            same = base64.b64decode(stored) == digest
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
         return Result(key, "error", f"이미 있는 객체 확인 실패: {e}")
     return Result(key, "same" if same else "different")
 
@@ -101,6 +107,12 @@ def main(argv: list[str] | None = None) -> int:
         p: sum(1 for f in todo if f.relative_to(root).parts[0] == p) for p in PREFIXES
     }
     print(f"대상 {len(todo)}개 파일, {size / 1024 / 1024:,.1f}MB, 접두어별 {by_prefix}")
+    if not todo:
+        print(
+            f"올릴 파일이 없다. --raw-root 아래 {', '.join(PREFIXES)} 폴더를 확인한다",
+            file=sys.stderr,
+        )
+        return 1
     if args.dry_run:
         return 0
     s3 = boto3.client(

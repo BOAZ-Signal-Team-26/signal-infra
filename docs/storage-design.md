@@ -241,6 +241,7 @@ s3://signal-data-{접미어}/
   - 이 규칙으로 본체만 올라간 뒤 중단된 작업을 다시 실행해도 `.meta.json`까지 이어서 올릴 수 있음
 - 설정
   - 버전 관리(versioning) 켬
+  - 버킷 정책: TLS가 아닌 요청(`aws:SecureTransport`가 거짓)은 모든 동작 거부(11월 15일 PR #35 리뷰)
   - 버킷 정책: `eval/*` 읽기는 전용 IAM 역할만 허용, 그 밖의 주체는 거부(3.8)
   - 버킷 정책: 파이프라인 역할과 사람 계정 모두 `raw/*`, `runs/*`, `assets/*`에 `s3:DeleteObject`, `s3:DeleteObjectVersion` 거부
   - 버킷 정책: `raw/*`, `runs/*`, `assets/*`에 조건(`If-None-Match`) 없는 `s3:PutObject` 거부. 조건 키는 `s3:if-none-match`(값이 없으면 거부, `Null` 조건). 멀티파트 업로드의 조각 요청(`CreateMultipartUpload`·`UploadPart`·`UploadPartCopy`)은 `s3:ObjectCreationOperation`이 거짓이라 이 거부에서 빠지고, 완료 요청(`CompleteMultipartUpload`)에서 판정됨(S3 조건부 쓰기 강제 문서, 11월 8일 확인)
@@ -256,7 +257,7 @@ s3://signal-data-{접미어}/
 | `raw/`, `runs/`, `assets/` | 새 키만. 덮어쓰기·삭제 금지 | 영구 | 재수집으로 같은 바이트를 얻는다는 보장이 없음(3.7). `runs/`는 공식 채점 실행의 입력 고정 기록 |
 | `derived/` | 덮어쓰기 허용 | 이전 버전 30일 | 원본과 파서 버전으로 다시 만들 수 있음 |
 | `eval/` | 덮어쓰기 허용, 접근 제한 | 영구 | 사람이 만든 평가 자료는 재생성 불가 |
-| `exports/runs/` | 덮어쓰기 허용 | 90일. 단 공식 실행(`exports/official.json`이 가리키는 실행)의 객체는 만료 제외. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴. 구현: 내보내기 작업이 모든 객체에 태그 `official=no`를 붙이고, 공식 실행이 되면 `official=yes`로 바꿈. 90일 만료 규칙은 태그가 `official=no`인 객체에만 적용. 버전 관리 때문에 만료 뒤 남는 이전 버전은 1일 뒤 지움(3.7 `backups/`와 같은 이유, 11월 13일 데이터 엔지니어링·인프라(주영) 결정) |
+| `exports/runs/` | 덮어쓰기 허용 | 90일. 단 공식 실행(`exports/official.json`이 가리키는 실행)의 객체는 만료 제외. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴. 구현: 내보내기 작업이 모든 객체에 태그 `official=no`를 붙이고, 공식 실행이 되면 `official=yes`로 바꿈. 90일 만료 규칙은 태그가 `official=no`인 객체에만 적용. 버전 관리 때문에 만료 뒤 남는 이전 버전은 1일 뒤 지움(3.7 `backups/`와 같은 이유, 11월 13일 데이터 엔지니어링·인프라(주영) 결정). 태그 조건 규칙에는 삭제 마커 정리(`ExpiredObjectDeleteMarker`)를 함께 둘 수 없어, 접두어만 쓰는 규칙을 따로 둬서 단독 삭제 마커를 지움(11월 15일 PR #35 리뷰) |
 | `backups/` | 날짜별 새 키 | 35일 | 주 1회 덤프 5개 유지 |
 | `deploy/` | 커밋별 새 키 | 30일, 이전 버전 1일(가정) | 배포 묶음은 저장소에서 다시 만들 수 있음. 「미결」 |
 | `raw/data_go_fund/` 스냅숏 | 새 키만 | 객체 생성 30일 뒤 Standard-IA로 이동(날짜 기준) | 기준일별 전체 스냅숏이 쌓이므로 오래된 것을 저렴한 등급으로 옮김. 매주 수집하면 Standard에 남는 스냅숏은 약 4개. Standard-IA는 0.0138달러/GB월(Standard의 55%), 꺼내 읽을 때 0.01달러/GB |
@@ -479,7 +480,7 @@ s3://signal-data-{접미어}/
 | 루트 계정 | MFA 켬. 결제 설정 외에는 쓰지 않음. 결제 주체 PM(대현)이 보관 |
 | IAM 사용자 2명(그룹 없음) | AWS 관리형 정책 `AdministratorAccess`. PM(대현), 데이터 엔지니어링·인프라(주영) |
 | IAM 그룹 `signal-team` | AWS 관리형 정책 `PowerUserAccess`. 분석·리서치(민석), 데이터 사이언스(다빈). IAM을 뺀 모든 서비스를 쓸 수 있어 SSM 비밀값 읽기·S3 쓰기도 가능함 |
-| EC2 인스턴스 역할 `signal-pipeline-ec2` | `AmazonSSMManagedInstanceCore`(Session Manager), 버킷 목록 조회, `raw/`·`derived/`·`runs/`·`assets/`·`exports/`·`backups/`·`deploy/` 읽기·쓰기(`eval/` 없음, 삭제 권한 없음), `exports/` 태그 읽기·쓰기, SSM `/signal/*` 읽기와 SSM을 거친 KMS 복호화(`scripts/aws/policies/ec2-access.json`) |
+| EC2 인스턴스 역할 `signal-pipeline-ec2` | `AmazonSSMManagedInstanceCore`(Session Manager), 버킷 목록 조회, `raw/`·`derived/`·`runs/`·`assets/`·`exports/`·`backups/`·`deploy/` 읽기·쓰기(`eval/` 없음, 삭제 권한 없음), `exports/` 태그 읽기·쓰기, SSM `/signal/*` 읽기와 SSM을 거친 KMS 복호화(`scripts/aws/policies/ec2-access.json`). EC2에서 쓰지 않는 `/signal/rds/master_password`·`owner_password`·`reader_password`는 명시적으로 거부. `AmazonSSMManagedInstanceCore`가 `ssm:GetParameter`·`ssm:GetParameters`를 모든 자원에 허용하므로 Allow 범위를 좁혀서는 막히지 않음(11월 15일 PR #35 리뷰, AWS 관리형 정책 문서 확인) |
 | 정책 `signal-protect-eip` | `signal-airflow` 탄력적 IP 해제 거부. 관리자 사용자 2명과 그룹 `signal-team`에 붙임(3.4) |
 | 역할 `signal-budgets-stop-ec2` | AWS Budgets가 맡는 실행 역할. 같은 계정의 예산만 맡을 수 있음(`aws:SourceAccount`·`aws:SourceArn` 조건). AWS 관리형 정책 `AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`(3.10) |
 
@@ -551,7 +552,7 @@ s3://signal-data-{접미어}/
 | 3단계 | 상한의 100%, 50달러 | 켬 | 켬 | PM(대현), 데이터 엔지니어링·인프라(주영) |
 
 - 권고안은 월말 예측이 약 43달러라 정상 운영 중에도 1단계와 2단계 예측 알림이 매달 옴. 2단계(40달러) 예측 알림이 오면 원인 확인, 3단계가 오면 최소안 전환 검토
-- 예산 금액은 크레딧 차감 전 금액으로 봄. 크레딧이 비용을 가려 알림이 오지 않는 것을 막음. AWS Budgets에서 크레딧 제외 금액 기준으로 설정할 수 있는지는 확인 필요(「미결」)
+- 예산 금액은 크레딧 차감 전 금액으로 봄. 크레딧이 비용을 가려 알림이 오지 않는 것을 막음. AWS Budgets 예산의 비용 유형에서 크레딧 포함을 끔(`CostTypes.IncludeCredit=false`. 비용 예산의 기본값은 포함). 크레딧을 포함해 집계하면 크레딧이 남아 있는 동안 실제 비용이 0달러 근처라 중지 동작이 실행되지 않으므로, `05-budgets.sh`는 크레딧을 포함하는 예산이면 멈춤(11월 15일 PR #35 리뷰)
 - AWS Budgets는 알림만 보내고 자원을 멈추지 않음. 3단계(실제 비용 50달러) 도달 시 EC2를 중지하는 예산 동작(Budgets actions)을 추가
   - 동작: EC2 인스턴스 중지. RDS와 S3는 데이터 보존을 위해 건드리지 않음
   - 실행 방식: 승인 없이 자동 실행
@@ -710,8 +711,8 @@ flowchart LR
     - 사용자 `airflow:airflow`. 경로: `AIRFLOW_HOME` `/opt/signal/airflow`, Airflow 가상환경 `/opt/signal/airflow-venv`, 코드 `/opt/signal/signal-pipeline`(공개 저장소를 태그로 받음. 나중에 CodeDeploy도 같은 위치), 파이프라인 가상환경 `/opt/signal/signal-pipeline/.venv`, 환경 설정 `/etc/sysconfig/airflow`, 작업 기록 `/var/lib/signal`, 임시 파일 `/tmp/signal`. DAG 폴더는 signal-pipeline 저장소 루트 `dags/`
     - Airflow 2.11.2를 자체 가상환경에 pip와 공식 제약 파일로 설치(postgres·amazon 추가 패키지). signal-pipeline은 별도 가상환경에 `uv.lock` 그대로 설치하고, DAG 작업은 `uv run`으로 실행. 두 가상환경은 dnf `python3.12` 하나를 같이 씀. uv는 버전을 고정한 실행 파일(GitHub 릴리스, sha256 확인)이고 `UV_PYTHON=/usr/bin/python3.12`, `UV_PYTHON_DOWNLOADS=never`. 가상환경을 나누는 이유: `uv.lock` 운영 의존성 15개 중 8개가 Airflow 제약 파일과 버전이 달라(예: cryptography 50.0.2 / 44.0.3) 한 환경에 고정 버전으로 설치되지 않고, 버전 범위로 넣으면 팀 패키지 9개(pillow 포함)가 `uv.lock`과 다른 버전으로 설치됨(10월 18일 데이터 엔지니어링·인프라(주영) 확인)
     - 2GB 메모리용 설정: LocalExecutor, 전체 동시 작업 2·DAG당 2, 웹 서버 워커 1개, DAG 해석 프로세스 1개, 예시 DAG 끔, 지난 실행 보충(catchup) 기본 끔, pool `signal_cpu` 슬롯 2(signal-pipeline `docs/architecture.md` 2-3)
-    - 비밀값: 메타데이터 DB 연결 문자열·Fernet 키·웹 서버 비밀 키는 SSM을 읽는 명령으로 넘김(Airflow `*_CMD` 설정). 서버에 평문 비밀값 파일을 두지 않음. 메타데이터 DB = RDS `airflow`(TLS 필수, `sslmode=require`)
-    - 프로세스: Airflow 공식 예시 기반 systemd 서비스 2개(웹 서버·스케줄러, 실패 시 자동 재시작). 웹 화면은 `127.0.0.1:8080`에만 열고 Session Manager 포트 전달로 접속. 공용 관리자 계정 1개(비밀번호 SSM)
+    - 비밀값: 메타데이터 DB 연결 문자열·Fernet 키·웹 서버 비밀 키는 SSM을 읽는 명령으로 넘김(Airflow `*_CMD` 설정). 서버에 평문 비밀값 파일을 두지 않음. 메타데이터 DB = RDS `airflow`(TLS와 서버 인증서 확인, `sslmode=verify-full`. CA 묶음은 RDS 공식 리전 묶음을 받아 `/opt/signal/rds-ca/`에 둠, 11월 15일 PR #35 리뷰)
+    - 프로세스: Airflow 공식 예시 기반 systemd 서비스 2개(웹 서버·스케줄러, 실패 시 자동 재시작). 웹 화면은 `127.0.0.1:8080`에만 열고 Session Manager 포트 전달로 접속. 공용 관리자 계정 1개(비밀번호 SSM. 명령 인자로 넘기지 않고 표준 입력으로 넘김)
     - 로그: `AIRFLOW_HOME/logs`, 14일 지난 파일을 매일 지우는 systemd 타이머, journald 상한 200MB. S3 원격 로그는 쓰지 않음
     - CodeDeploy 에이전트 설치(서울 리전 공식 설치 경로)와 부팅 시 자동 시작. 배포 설정은 Week 8
     - 설치한 Airflow·uv·pdfplumber·pg_dump 버전과 디스크 사용량을 `/var/lib/signal/setup-report.txt`에 남김. pdfplumber 버전을 파서 버전에 반영
@@ -720,7 +721,7 @@ flowchart LR
     - Session Manager로 4인 모두 접속
     - S3 `raw/`: 조건부 쓰기 성공, 같은 키 재쓰기 실패, 조건 없는 쓰기 거부, 삭제 거부
     - S3 `raw/`: `If-None-Match` 없는 멀티파트 업로드 완료가 거부되는지, 8MB 넘는 파일을 `put_object(..., IfNoneMatch='*')`로 쓸 수 있는지
-    - Budgets 중지 동작: 임계값을 낮춰(`BUDGET_THRESHOLD=1`로 `05-budgets.sh`) EC2가 실제로 중지되는지 시험한 뒤 100%로 되돌림
+    - Budgets 중지 동작: 임계값을 낮춰(`BUDGET_THRESHOLD=1`로 `05-budgets.sh`) EC2가 실제로 중지되는지 시험한 뒤, EC2를 다시 켜고 동작을 `RESET_BUDGET_ACTION`으로 `STANDBY`에 되돌린 다음 100%로 다시 실행(명령은 `scripts/aws/README.md`)
     - S3 `derived/`: 같은 키 덮어쓰기 성공, 이전 버전 남음
     - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, 추출 병렬 2로 DART PDF 50건 연속 처리 중 스왑 500MB 이하, 300초 초과 파일 0건). 넘으면 t3.small로 전환하고, 같은 2GB이므로 추출 병렬 1로도 시험
     - 위 50건 연속 처리에서 파일별 pdfplumber 처리 시간과 최대 메모리 기록
@@ -768,7 +769,7 @@ flowchart LR
 | 무료 요금제에서 RDS db.t4g.micro와 EventBridge Scheduler를 쓸 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
 | 활동 크레딧 5개 수행 여부와 수행 결과(받은 크레딧 금액) | PM(대현) | AWS 계정 생성 후 1주 안 |
 | 유료 전환 시 남은 크레딧이 유지되는지 | PM(대현) | 12월 1일 |
-| AWS Budgets를 크레딧 차감 전 금액 기준으로 설정할 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
+| 예산 `monthly-50usd`의 크레딧 포함을 껐는지(`CostTypes.IncludeCredit=false`). 켜져 있으면 `05-budgets.sh`가 멈춤 | PM(대현) | `05-budgets.sh` 실행 전 |
 | t4g(ARM)에서 Airflow·signal-pipeline 실제 실행 여부(설치 가능 여부는 10월 18일 확인), HWP 처리 도구의 arm64 지원. 안 되면 t3.small(월 +3.80달러). 11월 13일 Amazon Linux 2023 arm64 컨테이너 리허설(`scripts/aws/local-test/ec2-sim.sh`)에서 `10-ec2-setup.sh`가 끝까지 돌고 Airflow 2.11.2와 signal-pipeline 가상환경이 같은 Python 3.12.15로 실행됨(DART PDF 50건 추출 DAG 성공). HWP 도구는 아직 쓰지 않아 미확인. EC2에서 한 번 더 확인 | 데이터 엔지니어링·인프라(주영) | EC2 생성 직후 |
 | 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0, PDF 50건 연속 처리 중 스왑 500MB 이하·300초 초과 0건) 통과 여부. 넘으면 t3.small로 전환. 11월 13일 컨테이너 측정 2회(메모리 2GB·CPU 2개, CodeDeploy 에이전트 켬): 유휴 사용 메모리 평균 0.60GB·최대 0.69GB·측정 중 스왑 증가 없음, 추출 병렬 2로 50건 처리 중 최대 1.06~1.20GB·스왑 30MB 미만, 파일당 중앙값 5.5~7.0초·최대 21~27초, 300초 초과 0건. 컨테이너에는 cgroup 밖 커널 메모리와 SSM 에이전트 등이 빠져 있어 EC2에서 다시 재어 확정 | 데이터 엔지니어링·인프라(주영) | EC2 설정 직후 |
 | `document.distributor_id` 외래 키를 두지 않고 적재 검증으로 대체하는 판단을 ERD에 반영할지. 10월 18일 기준 ERD v2.2(signal-pipeline dev) DBML에는 외래 키가 남아 있음 | PM(대현) | DB 초기화(6절 11) 전 |

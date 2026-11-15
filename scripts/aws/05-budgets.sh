@@ -8,9 +8,11 @@
 #   정책 내용 확인은 구축 때 하고, 넓으면 ec2:StopInstances·ssm:StartAutomationExecution만 넣은 정책으로 바꾼다(결정 기록의 남은 확인)
 # - 알림 수신자 PM·데이터 엔지니어링·인프라. 메일 주소는 저장소에 넣지 않고 BUDGET_EMAILS로 받는다
 # - RDS·S3는 데이터 보존을 위해 건드리지 않는다
+# - 예산은 크레딧 차감 전 금액으로 집계해야 한다(storage-design.md 3.10). 크레딧을 포함해 집계(CostTypes.IncludeCredit=true,
+#   기본값)하면 크레딧이 남아 있는 동안 실제 비용이 0달러 근처라 이 동작이 실행되지 않으므로, 그렇게 설정된 예산이면 멈춘다
 #
 # 사용: BUDGET_EMAILS="<메일> <메일>" scripts/aws/05-budgets.sh   (04 뒤. 다시 실행하면 인스턴스 ID·수신자를 맞춤)
-# 시험(6절 12): BUDGET_THRESHOLD=1 로 실행해 중지되는지 본 뒤 기본값(100)으로 다시 실행한다
+# 시험(6절 12): BUDGET_THRESHOLD=1 로 실행해 중지되는지 본 뒤, 동작을 STANDBY로 되돌리고(README) 기본값(100)으로 다시 실행한다
 
 source "$(dirname "$0")/lib.sh"
 require aws jq
@@ -36,11 +38,14 @@ ensure_role() {
 }
 
 main() {
-  local account instance role_arn subscribers existing definition threshold
+  local account instance role_arn subscribers existing definition threshold include_credit
   [[ -n "${BUDGET_EMAILS:-}" ]] || die "BUDGET_EMAILS(동작 알림 받을 메일, 공백으로 구분)가 필요하다"
   account=$(account_id)
-  aws budgets describe-budget --account-id "$account" --budget-name "$BUDGET" >/dev/null ||
+  include_credit=$(aws budgets describe-budget --account-id "$account" --budget-name "$BUDGET" \
+    --query Budget.CostTypes.IncludeCredit --output text) ||
     die "예산 ${BUDGET}이 없다(PM이 만든 예산 이름을 확인한다)"
+  [[ "$include_credit" == False ]] ||
+    die "예산 ${BUDGET}이 크레딧을 포함해 집계한다(IncludeCredit=$include_credit). 크레딧이 남아 있는 동안 EC2 중지가 실행되지 않는다. 예산의 크레딧 포함을 끈 뒤 다시 실행한다(README 5번)"
   instance=$(instance_id)
   [[ -n "$instance" && "$instance" != *[[:space:]]* ]] || die "signal-airflow 인스턴스가 하나가 아니다: '$instance'"
   ensure_role

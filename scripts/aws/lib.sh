@@ -116,15 +116,18 @@ ssm_secret() {
 
 # 비밀값이 든 요청 JSON을 표준 입력으로 받아 권한 600 임시 파일로 넘기고 지운다.
 # 명령 인자(프로세스 목록)에 비밀값이 남지 않게 하려는 것. AWS CLI는 file:///dev/stdin을 읽지 못한다(macOS 확인).
+# 서브셸의 EXIT trap으로 지우므로 명령 실패·Ctrl-C·종료 신호로 끝나도 파일이 남지 않는다.
 # 사용: jq ... | with_json_file aws ssm put-parameter --cli-input-json
 with_json_file() {
-  local tmp rc=0
-  tmp=$(mktemp "${TMPDIR:-/tmp}/signal-request.XXXXXX")
-  chmod 600 "$tmp"
-  cat >"$tmp"
-  "$@" "file://$tmp" || rc=$?
-  rm -f "$tmp"
-  return "$rc"
+  (
+    tmp=$(mktemp "${TMPDIR:-/tmp}/signal-request.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM HUP
+    chmod 600 "$tmp"
+    cat >"$tmp"
+    "$@" "file://$tmp"
+  )
 }
 
 # String 파라미터를 만들거나 같은 이름이면 값을 바꾼다(비밀값이 아닌 것만)

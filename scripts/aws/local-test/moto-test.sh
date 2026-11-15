@@ -41,8 +41,12 @@ account=$(aws sts get-caller-identity --query Account --output text)
 # 계정 준비(6절 1, PM 몫)를 흉내 낸다: 그룹 signal-team, 예산 monthly-50usd
 aws iam create-group --group-name signal-team >/dev/null
 aws iam create-user --user-name test-admin >/dev/null
-aws budgets create-budget --account-id "$account" --budget \
-  'BudgetName=monthly-50usd,BudgetLimit={Amount=50,Unit=USD},TimeUnit=MONTHLY,BudgetType=COST' >/dev/null
+make_budget() {
+  aws budgets create-budget --account-id "$account" --budget \
+    "BudgetName=monthly-50usd,BudgetLimit={Amount=50,Unit=USD},TimeUnit=MONTHLY,BudgetType=COST,CostTypes={IncludeCredit=$1}" >/dev/null
+}
+# 크레딧을 포함해 집계하는 예산이면 05가 멈춰야 한다. 확인 뒤 크레딧 제외 예산으로 바꾼다
+make_budget true
 
 "$AWS_DIR/00-put-secret.sh" /signal/rds/master_password --generate password
 "$AWS_DIR/00-put-secret.sh" /signal/rds/master_password --generate password # 두 번째는 건너뜀
@@ -59,8 +63,24 @@ run_all() {
   fi
 }
 
+echo "===== 05: 크레딧 포함 예산이면 멈춤"
+budget_credit_check=fail
+if out=$(BUDGET_EMAILS="a@example.com" "$AWS_DIR/05-budgets.sh" 2>&1); then
+  echo "05가 멈추지 않았다"
+elif [[ "$out" == *"크레딧을 포함해 집계한다"* ]]; then
+  budget_credit_check=ok
+else
+  echo "$out" | tail -3
+fi
+aws budgets delete-budget --account-id "$account" --budget-name monthly-50usd
+make_budget false
+
 echo "===== 1회차"
 run_all
+# 탄력적 IP를 새로 받은 상황을 흉내 낸다: signal-protect-eip 기본 버전을 다른 할당 ID로 바꿔 두고 2회차에서 되돌아오는지 본다
+protect_arn="arn:aws:iam::$account:policy/signal-protect-eip"
+aws iam create-policy-version --policy-arn "$protect_arn" --set-as-default \
+  --policy-document "$(sed "s/{{REGION}}/ap-northeast-2/; s/{{ACCOUNT_ID}}/$account/; s/{{ALLOCATION_ID}}/eipalloc-old/" "$AWS_DIR/policies/protect-eip.json")" >/dev/null
 echo "===== 2회차(다시 실행)"
 run_all
 
@@ -96,8 +116,13 @@ bucket="signal-data-$account-ap-northeast-2-an"
 check 버킷 "$(aws s3api list-buckets --query "length(Buckets[?Name=='$bucket'])")" 1
 check 버전관리 "$(aws s3api get-bucket-versioning --bucket "$bucket" --query Status --output text)" Enabled
 check 공개차단 "$(aws s3api get-public-access-block --bucket "$bucket" --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets]' --output text | tr '\t' ' ')" "True True True True"
-check 수명주기_규칙수 "$(aws s3api get-bucket-lifecycle-configuration --bucket "$bucket" --query 'length(Rules)')" 8
-check 버킷정책_문장수 "$(aws s3api get-bucket-policy --bucket "$bucket" --query Policy --output text | jq '.Statement | length')" 3
+check 수명주기_규칙수 "$(aws s3api get-bucket-lifecycle-configuration --bucket "$bucket" --query 'length(Rules)')" 9
+check 버킷정책_문장수 "$(aws s3api get-bucket-policy --bucket "$bucket" --query Policy --output text | jq '.Statement | length')" 4
+check 버킷정책_TLS거부 "$(aws s3api get-bucket-policy --bucket "$bucket" --query Policy --output text | jq -r '.Statement[] | select(.Sid=="DenyInsecureTransport") | .Condition.Bool["aws:SecureTransport"]')" false
+check EC2역할_DB비밀번호거부 "$(aws iam get-role-policy --role-name signal-pipeline-ec2 --policy-name signal-pipeline-ec2-access --query PolicyDocument --output json | jq -r '[.Statement[] | select(.Effect=="Deny") | .Resource[] | split("/") | last] | join(" ")')" "master_password owner_password reader_password"
+check EC2역할_경로조회없음 "$(aws iam get-role-policy --role-name signal-pipeline-ec2 --policy-name signal-pipeline-ec2-access --query PolicyDocument --output json | jq '[.. | strings | select(. == "ssm:GetParametersByPath")] | length')" 0
+check EIP보호정책_할당ID갱신 "$(aws iam get-policy-version --policy-arn "$protect_arn" --version-id "$(aws iam get-policy --policy-arn "$protect_arn" --query Policy.DefaultVersionId --output text)" --query PolicyVersion.Document --output json | jq -r '.. | strings | select(startswith("arn:aws:ec2")) | split("/") | last')" "$(aws ec2 describe-addresses --filters "$f" --query 'Addresses[0].AllocationId' --output text)"
+check 예산_크레딧포함이면멈춤 "$budget_credit_check" ok
 check 역할 "$(aws iam list-roles --query "length(Roles[?starts_with(RoleName, 'signal-')])")" 2
 check EIP보호정책_연결 "$(aws iam list-entities-for-policy --policy-arn "arn:aws:iam::$account:policy/signal-protect-eip" --query '[length(PolicyGroups),length(PolicyUsers)]' --output text | tr '\t' ' ')" "1 1"
 # shellcheck disable=SC2016 # 백틱은 JMESPath 숫자 표기

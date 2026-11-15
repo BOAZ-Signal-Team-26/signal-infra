@@ -14,6 +14,9 @@
 # 10. CodeDeploy 에이전트 설치(서울 리전 공식 설치 경로). 배포 설정은 Week 8
 # 11. airflow db migrate, 관리자 계정 1개, pool signal_cpu(슬롯 2), 서비스 시작, 버전·디스크 기록
 #
+# 메타데이터 DB 연결은 sslmode=verify-full로 RDS 서버 인증서와 호스트 이름까지 확인한다. CA 묶음은 RDS 공식 경로
+# (truststore.pki.rds.amazonaws.com, 리전 묶음)에서 받아 $BASE/rds-ca/에 둔다. 로컬 리허설은 --rds-ca-file로 시험용 CA를 준다
+#
 # 전제
 # - 03-rds.sh가 SSM /signal/infra/rds_endpoint를 적었다
 # - PM이 RDS에 airflow 데이터베이스와 airflow 계정을 만들었다. 그 비밀번호가 SSM /signal/rds/airflow_password에 있다
@@ -21,7 +24,7 @@
 #
 # 사용(EC2 Session Manager 셸에서)
 #   sudo bash 10-ec2-setup.sh --pipeline-ref <signal-pipeline 태그 또는 브랜치> --raw-root s3://<버킷 이름>/
-#   선택: --skip-upgrade --skip-swap --skip-codedeploy --no-start
+#   선택: --skip-upgrade --skip-swap --skip-codedeploy --no-start --rds-ca-file <PEM 경로>
 # 다시 실행해도 된다. 이미 된 단계는 건너뛰고, 설정 파일과 서비스 파일은 이 스크립트 내용으로 다시 쓴다
 
 set -euo pipefail
@@ -40,6 +43,9 @@ REGION="${AWS_REGION:-ap-northeast-2}"
 
 PIPELINE_REF=""
 RAW_ROOT=""
+RDS_CA_FILE=""
+RDS_CA=$BASE/rds-ca/rds-ca-bundle.pem
+SWAP_BYTES=$((2048 * 1024 * 1024))
 SKIP_UPGRADE=false SKIP_SWAP=false SKIP_CODEDEPLOY=false START=true
 
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%SZ)" "$*" >&2; }
@@ -49,7 +55,7 @@ die() {
 }
 
 usage() {
-  sed -n '2,27p' "$0" >&2
+  sed -n '2,28p' "$0" >&2
   exit 2
 }
 
@@ -80,6 +86,10 @@ parse_args() {
       START=false
       shift
       ;;
+    --rds-ca-file)
+      RDS_CA_FILE=${2:-}
+      shift 2
+      ;;
     *) usage ;;
     esac
   done
@@ -109,7 +119,11 @@ step_swap() {
     return
   fi
   log "2. 스왑 파일 2GB 만들기"
-  [[ -f /swapfile ]] || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  # 이전 실행에서 dd가 중간에 끊겨 크기가 모자라면 새로 만든다
+  if [[ ! -f /swapfile || "$(stat -c %s /swapfile)" -ne $SWAP_BYTES ]]; then
+    rm -f /swapfile
+    dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
+  fi
   chmod 600 /swapfile
   mkswap /swapfile >/dev/null
   swapon /swapfile
@@ -142,7 +156,8 @@ step_airflow() {
     return
   fi
   log "5. Airflow $AIRFLOW_VERSION 설치(공식 제약 파일)"
-  [[ -d "$AIRFLOW_VENV" ]] || "$PYTHON" -m venv "$AIRFLOW_VENV"
+  # 이전 실행이 venv 생성 중에 끊겨 pip가 없으면 venv를 새로 만든다
+  [[ -x "$AIRFLOW_VENV/bin/pip" ]] || "$PYTHON" -m venv --clear "$AIRFLOW_VENV"
   "$AIRFLOW_VENV/bin/pip" install -q --upgrade pip
   "$AIRFLOW_VENV/bin/pip" install -q "apache-airflow[postgres,amazon]==${AIRFLOW_VERSION}" --constraint "$constraints"
 }
@@ -180,6 +195,21 @@ step_pipeline() {
     UV_CACHE_DIR="$STATE/uv-cache" /usr/local/bin/uv sync --locked --no-dev --quiet)
 }
 
+step_rds_ca() {
+  local url="https://truststore.pki.rds.amazonaws.com/${REGION}/${REGION}-bundle.pem"
+  install -d -m 0755 "$(dirname "$RDS_CA")"
+  if [[ -n "$RDS_CA_FILE" ]]; then
+    log "7. RDS CA 묶음: $RDS_CA_FILE(--rds-ca-file)"
+    install -m 0644 "$RDS_CA_FILE" "$RDS_CA"
+  else
+    log "7. RDS CA 묶음 받기($url)"
+    curl -fsSL -o "$RDS_CA.tmp" "$url"
+    grep -q 'BEGIN CERTIFICATE' "$RDS_CA.tmp" || die "RDS CA 묶음이 인증서 형식이 아니다: $url"
+    install -m 0644 "$RDS_CA.tmp" "$RDS_CA"
+    rm -f "$RDS_CA.tmp"
+  fi
+}
+
 step_helpers() {
   log "7. SSM에서 비밀값을 읽는 명령"
   cat >"$BIN/ssm-get" <<'EOF'
@@ -191,13 +221,13 @@ exec aws --region "${AWS_DEFAULT_REGION:-ap-northeast-2}" ssm get-parameter --na
 EOF
   cat >"$BIN/airflow-sql-conn" <<EOF
 #!/bin/bash
-# Airflow 메타데이터 DB 연결 문자열(RDS airflow 데이터베이스, TLS 필수). 비밀번호는 실행 때 SSM에서 읽는다
+# Airflow 메타데이터 DB 연결 문자열(RDS airflow 데이터베이스, TLS와 서버 인증서 확인). 비밀번호는 실행 때 SSM에서 읽는다
 set -euo pipefail
 PW=\$($BIN/ssm-get /signal/rds/airflow_password) exec $AIRFLOW_VENV/bin/python -c '
 import os, urllib.parse
 pw = urllib.parse.quote(os.environ["PW"], safe="")
 host = os.environ["SIGNAL_RDS_HOST"]
-print(f"postgresql+psycopg2://airflow:{pw}@{host}:5432/airflow?sslmode=require")'
+print(f"postgresql+psycopg2://airflow:{pw}@{host}:5432/airflow?sslmode=verify-full&sslrootcert=$RDS_CA")'
 EOF
   chmod 0755 "$BIN/ssm-get" "$BIN/airflow-sql-conn"
 }
@@ -339,10 +369,18 @@ step_airflow_db() {
   local pw
   log "11. airflow db migrate, 관리자 계정, pool"
   as_airflow airflow db migrate >/dev/null
-  if ! as_airflow airflow users list -o json 2>/dev/null | jq -e 'any(.[]; .username == "admin")' >/dev/null; then
+  # airflow CLI는 표준 출력에 로그 줄을 먼저 찍으므로 JSON 줄만 고른다. 사용자가 없으면 JSON 줄이 없다
+  if ! as_airflow airflow users list -o json 2>/dev/null | { grep '^\[{' || true; } |
+    jq -e -s 'any(.[][]; .username == "admin")' >/dev/null; then
     pw=$("$BIN/ssm-get" /signal/airflow/admin_password) || die "SSM /signal/airflow/admin_password가 없다"
-    as_airflow airflow users create --username admin --role Admin \
-      --firstname signal --lastname admin --email admin@example.invalid --password "$pw" >/dev/null
+    # 비밀번호를 명령 인자로 넘기지 않는다(sudo 로그·ps에 남음). --password 없이 실행하면 getpass로 두 번 묻는데,
+    # setsid로 제어 터미널을 떼면 getpass가 표준 입력에서 읽는다. printf는 셸 내장이라 프로세스 목록에 남지 않는다
+    printf '%s\n%s\n' "$pw" "$pw" | as_airflow setsid -w airflow users create --username admin --role Admin \
+      --firstname signal --lastname admin --email admin@example.invalid >/dev/null ||
+      die "관리자 계정을 만들지 못했다"
+    unset pw
+    as_airflow airflow users list -o json 2>/dev/null | grep '^\[{' | jq -e 'any(.[]; .username == "admin")' >/dev/null ||
+      die "관리자 계정 admin이 목록에 없다"
     log "관리자 계정 admin 만듦(비밀번호는 SSM /signal/airflow/admin_password)"
   fi
   as_airflow airflow pools set signal_cpu 2 "signal DAG 공유 CPU 슬롯(architecture.md 2-3)" >/dev/null
@@ -377,7 +415,7 @@ step_report() {
     echo "Airflow: $("$AIRFLOW_VENV/bin/pip" show apache-airflow | awk '/^Version:/{print $2}')"
     echo "uv: $(/usr/local/bin/uv --version)"
     echo "signal-pipeline: $PIPELINE_REF ($(sudo -u airflow git -C "$PIPELINE_DIR" rev-parse --short HEAD))"
-    echo "pdfplumber: $("$PIPELINE_DIR/.venv/bin/python" -c 'import pdfplumber; print(pdfplumber.__version__)')"
+    echo "pdfplumber: $("$PIPELINE_DIR/.venv/bin/python" -c 'import pdfplumber; print(pdfplumber.__version__)' 2>/dev/null || echo n/a)"
     echo "pg_dump: $(pg_dump --version)"
     echo "스왑: $(swapon --show=NAME,SIZE --noheadings | tr '\n' ' ')"
     echo "디스크(/): $(df -h / | awk 'NR==2{print $3 " 사용 / " $2}')"
@@ -396,6 +434,7 @@ main() {
   step_airflow
   step_uv
   step_pipeline
+  step_rds_ca
   step_helpers
   step_config
   step_logs

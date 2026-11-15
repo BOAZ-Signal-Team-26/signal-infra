@@ -19,6 +19,12 @@
       "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
     },
     {
+      "ID": "exports-runs-delete-markers",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "exports/runs/" },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    },
+    {
       "ID": "backups-35d",
       "Status": "Enabled",
       "Filter": { "Prefix": "backups/" },

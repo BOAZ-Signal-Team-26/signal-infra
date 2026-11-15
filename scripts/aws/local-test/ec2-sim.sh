@@ -13,14 +13,16 @@
 # - CPU 2개 제한은 CFS quota라 t4g.small의 CPU 크레딧(기준 성능 20%)은 흉내 내지 않는다. 처리 시간은 참고값
 #
 # 사용: scripts/aws/local-test/ec2-sim.sh --raw-dir <RAW_ROOT 경로(raw/dart 포함)> [--files 50] [--idle 180]
-#       [--pipeline-ref dev] [--skip-codedeploy] [--keep] [--out <결과 폴더>]
+#       [--pipeline-ref dev] [--skip-codedeploy] [--rerun] [--keep] [--out <결과 폴더>]
+# --rerun: 10-ec2-setup.sh를 한 번 더 실행해 다시 실행해도 되는지 본다(스왑 단계는 컨테이너라 건너뜀)
+# RDS 연결은 10번과 같이 sslmode=verify-full이다. 모의 RDS의 자체 서명 인증서를 --rds-ca-file로 넘긴다
 
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 AWS_DIR=$(dirname "$HERE")
 NET=signal-ec2sim MOTO=ec2sim-moto RDS=ec2sim-rds HOST=ec2sim-host
 MOTO_PORT="${MOTO_PORT:-5057}"
-FILES=50 IDLE=180 PIPELINE_REF=dev SETUP_FLAGS=(--skip-swap) KEEP=false RAW_DIR="" OUT=""
+FILES=50 IDLE=180 PIPELINE_REF=dev SETUP_FLAGS=(--skip-swap --rds-ca-file /root/rds-ca.pem) KEEP=false RERUN=false RAW_DIR="" OUT=""
 
 while (($#)); do
   case $1 in
@@ -29,9 +31,10 @@ while (($#)); do
   --idle) IDLE=$2; shift 2 ;;
   --pipeline-ref) PIPELINE_REF=$2; shift 2 ;;
   --skip-codedeploy) SETUP_FLAGS+=(--skip-codedeploy); shift ;;
+  --rerun) RERUN=true; shift ;;
   --keep) KEEP=true; shift ;;
   --out) OUT=$2; shift 2 ;;
-  *) sed -n '2,19p' "$0" >&2; exit 2 ;;
+  *) sed -n '2,18p' "$0" >&2; exit 2 ;;
   esac
 done
 [[ -d "$RAW_DIR/raw/dart" ]] || { echo "--raw-dir 아래 raw/dart가 없다" >&2; exit 2; }
@@ -98,12 +101,25 @@ docker exec "$HOST" bash -c '
   done
   chown -R airflow:airflow /home/airflow/.aws'
 docker cp "$AWS_DIR" "$HOST:/root/signal-infra-aws"
+# 모의 RDS의 자체 서명 인증서(CN=ec2sim-rds)를 CA 묶음으로 넘긴다(EC2에서는 RDS 공식 CA 묶음)
+docker cp "$RDS:/var/lib/postgresql/tls/server.crt" "$OUT/rds-ca.pem"
+docker cp "$OUT/rds-ca.pem" "$HOST:/root/rds-ca.pem"
 
 log "10-ec2-setup.sh 실행(--pipeline-ref $PIPELINE_REF ${SETUP_FLAGS[*]})"
 setup_start=$(date +%s)
 docker exec "$HOST" bash /root/signal-infra-aws/10-ec2-setup.sh --pipeline-ref "$PIPELINE_REF" \
   --raw-root /var/lib/signal/data/ "${SETUP_FLAGS[@]}" 2>&1 | tee "$OUT/setup.log"
 log "설정 끝: $(($(date +%s) - setup_start))초"
+if $RERUN; then
+  log "10-ec2-setup.sh 다시 실행(--rerun)"
+  rerun_start=$(date +%s)
+  docker exec "$HOST" bash /root/signal-infra-aws/10-ec2-setup.sh --pipeline-ref "$PIPELINE_REF" \
+    --raw-root /var/lib/signal/data/ --skip-upgrade "${SETUP_FLAGS[@]}" 2>&1 | tee "$OUT/setup-rerun.log"
+  log "다시 실행 끝: $(($(date +%s) - rerun_start))초"
+fi
+# 메타데이터 DB 연결이 verify-full인지 확인한다
+docker exec "$HOST" sudo -u airflow bash -c 'set -a; source /etc/sysconfig/airflow; set +a; exec /opt/signal/bin/airflow-sql-conn' |
+  grep -o 'sslmode=[a-z-]*' | tee "$OUT/sslmode.txt" >&2
 
 log "원본 PDF ${FILES}건 복사(접수번호 폴더 단위)"
 stage=$(mktemp -d)

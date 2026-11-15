@@ -30,8 +30,18 @@
     {
       "Sid": "ReadSignalParameters",
       "Effect": "Allow",
-      "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
+      "Action": ["ssm:GetParameter", "ssm:GetParameters"],
       "Resource": "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/*"
+    },
+    {
+      "Sid": "DenyDbPasswordsNotUsedOnEc2",
+      "Effect": "Deny",
+      "Action": "ssm:GetParameter*",
+      "Resource": [
+        "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/rds/master_password",
+        "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/rds/owner_password",
+        "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/rds/reader_password"
+      ]
     },
     {
       "Sid": "DecryptSecureStringViaSsm",
