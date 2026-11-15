@@ -21,3 +21,6 @@ override.tf.json
 *.p12
 *.pfx
 *.jks
+
+# Python 캐시(scripts/aws의 파이썬 스크립트)
+__pycache__/

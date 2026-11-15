@@ -9,7 +9,7 @@
 | 담당 | PM(대현) |
 | 리뷰 | 데이터 엔지니어링·인프라(주영) |
 | 입력 | 9월 30일 저장 계층 계획서 초안, 10월 4일 PM 확인 결과, ERD v2.2(signal-pipeline 저장소 dev 브랜치, PR #43 병합본) |
-| 다음 단계 | 이 문서를 전제로 Week 6(10월 15일~28일)에 PM(대현)이 AWS 계정 준비와 Terraform 코드·`terraform plan`을 작성하고, Week 7(10월 29일~11월 11일)에 실제 생성(`terraform apply`)함. 아키텍처 초안은 이 문서의 권고 구성으로 대체함. 일정은 10월 14일 11차 미팅 결정 |
+| 다음 단계 | 구축은 AWS CLI 스크립트(`scripts/aws/`)로 하고 Terraform은 백업용으로 둠(10월 31일 12차 미팅 결정). 스크립트 작성·AWS 생성은 데이터 엔지니어링·인프라(주영)(11월 8일). 스크립트에 넣은 값은 6절과 각 절의 「구축 값」 |
 
 - 가격은 10월 6일 AWS 가격 페이지의 서울 리전 공식 가격 데이터로 확인함(2절 「가격」). 무료 요금제 인스턴스 제한만 2차 출처 「추정」으로 남음
 - 10월 4일 초안에서 「미확인」이던 요금(EBS 볼륨, RDS 저장 공간, 백업 저장 공간, 데이터 전송)은 단가와 용량 가정을 넣어 비용 표 합계에 포함함
@@ -112,10 +112,18 @@
   - DB를 EC2와 분리하면 EC2를 켜고 끌 수 있음(3.3). 대시보드가 DB를 읽는 경우 DB만 켜 두면 됨
   - 전량 재실행 1회 5~10GB(추정)는 db.t4g.micro로 처리 가능한 규모. 느리면 인스턴스 크기만 올림
 - 설정
-  - PostgreSQL 주 버전은 프로비저닝 시점의 RDS 기본 최신 주 버전
+  - PostgreSQL 16(마이너 16.15) 고정, 마이너 버전 자동 업그레이드 끔(11월 8일). 근거: DDL(signal-pipeline `db/migrations/001_erd_v2_2.sql`)과 물리 결정 6건이 16 기준으로 검증됨. Airflow 2.11.2가 테스트한 PostgreSQL은 13~17이라 18은 제외(Airflow 공식 문서 Prerequisites). 17은 DDL 미검증. 16.15 표준 지원은 2027년 9월, 주 버전 16 표준 지원은 2029년 2월 28일까지(RDS PostgreSQL 출시 일정)로 프로젝트 기간보다 김. 11월 8일 계정의 RDS 기본 주 버전은 18
   - 공개 접근 끔(publicly accessible = false). 사설 서브넷 2개(ap-northeast-2a, 2c)로 DB 서브넷 그룹 구성(RDS 필수 조건)
   - 데이터베이스 2개: `signal`(ERD 표), `airflow`(Airflow 메타데이터)
   - 저장 공간 gp3 20GB로 시작하고 자동 확장 상한 50GB(월 최대 6.55달러). 전량 재실행 1회 5~10GB(추정)의 두세 배
+- 구축 값(11월 8일 결정, `scripts/aws/03-rds.sh`)
+  - 식별자 `signal-db`, db.t4g.micro, 단일 AZ(2a, EC2와 같은 가용 영역), DB 서브넷 그룹 `signal-db-subnets`(사설 2a·2c), 파라미터 그룹 `signal-pg16`(`postgres16` 계열, 값은 기본값: `rds.force_ssl` 1, `timezone` UTC)
+  - 마스터 사용자 `signal_admin`, 비밀번호는 SSM `/signal/rds/master_password`. RDS 관리형 비밀번호는 Secrets Manager 요금이 붙어 쓰지 않음(3.8)
+  - 자동 백업 7일, 백업 시간대 18:00–18:30 UTC(03:00 KST), 유지 보수 시간대 일요일 19:00–19:30 UTC(월요일 04:00 KST). 주간 수집 DAG 시각은 이 시간대를 피해 정함
+  - 저장 암호화 켬(`aws/rds`, 생성 뒤 켤 수 없음), 삭제 보호, 스냅숏에 태그 복사, IAM DB 인증 끔, Enhanced Monitoring 끔, 로그 내보내기 끔, Database Insights Standard(7일, 무료)
+  - 연장 지원(Extended Support) 등록 안 함: 기본값은 등록이라 표준 지원이 끝나면 요금이 붙음. 주 버전 16은 프로젝트 기간 안에 표준 지원이 끝나지 않아 실제 차이는 없음(11월 13일 데이터 엔지니어링·인프라(주영), 「미결」에서 확인)
+  - 생성 때 DB `signal`을 만들고, `airflow` DB와 DB 계정 4개(3.6)는 생성 뒤 SQL로 만듦(PM(대현))
+  - 엔드포인트 주소는 SSM `/signal/infra/rds_endpoint`(String)에 적음. EC2 설정 스크립트가 읽음
 - 비용이 더 급하면 B로 내려가는 최소안을 4절에 둠
 
 ### 3.2 원문 저장소(S3)
@@ -130,8 +138,8 @@
 
 권고: A
 
-- 버킷 이름: `signal-data-{접미어}`. S3 버킷 이름은 전 세계에서 유일해야 하므로 계정 생성 후 접미어를 정함
-- `RAW_ROOT` = `s3://signal-data-{접미어}/`. DB의 `storage_path`와 각종 `*_manifest_path`는 이 루트 기준 상대경로이며 그대로 S3 객체 키가 됨
+- 버킷 이름: `signal-data-{계정 ID}-ap-northeast-2-an`. 계정 리전 네임스페이스(account regional namespace)에 만들어 이 계정만 이 이름을 만들 수 있음(11월 8일). 저장소 코드·문서에는 계정 ID를 적지 않고, 스크립트(`scripts/aws/02-s3.sh`)가 실행 때 이름을 만듦. 아래에서는 `signal-data-{접미어}`로 줄여 씀
+- `RAW_ROOT` = `s3://signal-data-{접미어}/`. DB의 `storage_path`와 각종 `*_manifest_path`는 이 루트 기준 상대경로이며 그대로 S3 객체 키가 됨. `RAW_ROOT` 값은 EC2 환경 설정(`/etc/sysconfig/airflow`)에만 둠
 - 객체 키 형식은 [원본 보관과 수집·파싱 실패 처리 규칙](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/blob/dev/docs/storage-and-failure-rules.md) 「파일 경로」「파생 텍스트·실행 스냅숏 경로」「적재 순서」를 따름(10월 4일 확정 트리). 이 경로 규칙은 signal-pipeline PR #43 병합으로 그 저장소 dev 브랜치에 반영됨. 두 문서의 경로가 다르면 signal-pipeline dev 문서 기준으로 맞춤
 
 ```text
@@ -160,6 +168,7 @@ s3://signal-data-{접미어}/
   exports/runs/{score_run_id}/sensitivity/
   exports/runs/{score_run_id}/dashboard_documents.parquet  # 대시보드 전용 내보내기(칼럼 미결)
   backups/postgres/{YYYY-MM-DD}/signal.dump          # + signal.dump.sha256 (3.7)
+  deploy/{커밋}.zip                                   # CodeDeploy 배포 묶음(Week 8, 아키텍처 v2 그림 반영 목록 8)
 ```
 
 소스(`{source}`) 7개: `dart`, `kofia_disclosure`, `fss_sanction`, `fss_improvement`, `fss_dispute`, `data_go_fund`(공공데이터포털 펀드상품기본정보), `krx_etf_daily`(KRX ETF 일별 매매정보). KRX 소스 이름은 `krx_etf_daily`로 확정.
@@ -175,6 +184,7 @@ s3://signal-data-{접미어}/
 | `eval/` | 접근 제한. 파일럿(`pilot/`), 사람 평가(`human-eval/`), 제재 사례 검증(`sanction-validation/`: 매핑표·대조군). 평가용 사례는 규칙을 만들 때 보지 않도록 하위 폴더를 분리하고, 전용 IAM 역할만 읽을 수 있음 |
 | `exports/` | `official.json`은 현재 공식 채점 실행을 가리키는 포인터로 `is_official` 전환 때만 갱신. `runs/{score_run_id}/`에는 채점 결과(`scores.parquet`, `sensitivity/`)와 대시보드 전용 내보내기(`dashboard_documents.parquet`, 3.9)만 둠 |
 | `backups/` | PostgreSQL 덤프와 해시 파일 |
+| `deploy/` | CodeDeploy 배포 묶음. GitHub Actions(OIDC 역할)가 쓰고 EC2의 CodeDeploy 에이전트가 읽음. 쓰기 규칙·보관 기간은 「미결」(아래 표의 값은 가정) |
 
 - LLM 호출 저장: 시도 한 번당 `request.json`과 `response.json`. `request.json`이 입력의 정본(보낸 문서 텍스트, `input_sha256`, `inputs` 목록). `llm_field_extraction.input_sha256`(프롬프트 등과 함께)로 재호출 생략 여부를 판단. 세부 규칙은 원본 보관 규칙 문서 「LLM 호출 저장」(PR #43)
 
@@ -223,6 +233,7 @@ s3://signal-data-{접미어}/
 | `eval/` | 조건 없는 쓰기 허용. 읽기는 전용 IAM 역할만 | 평가 자료 갱신 가능, 접근 제한 |
 | `exports/` | 조건 없는 쓰기 허용 | 채점 실행 내보내기와 `official.json` 포인터 갱신 |
 | `derived/` | 조건 없는 쓰기 허용 | 원본 보관 규칙상 EXTRACT_OK 결과는 다시 쓰지 않음(불변). EXTRACT_FAILED·EXTRACT_PARTIAL 결과만 다음 실행이 같은 키(원본 파일 × 파서 버전)에 덮어씀. 이전 내용은 버전 관리로 남고 수명 주기로 30일 뒤 삭제. 실행별 실패 기록은 `runs/{run_id}/extraction_attempts.jsonl` |
+| `deploy/` | 조건 없는 쓰기 허용(가정) | 커밋별 새 키라 덮어쓸 일이 없고, CodeDeploy 배포 묶음은 저장소에서 다시 만들 수 있음 |
 
 - 이미 있는 키에 조건부 쓰기가 실패했을 때의 처리
   - 본체 파일과 `.meta.json`은 따로 올리므로 한쪽만 올라간 상태가 생길 수 있음(두 파일 쓰기는 원자적이지 않음)
@@ -232,8 +243,8 @@ s3://signal-data-{접미어}/
   - 버전 관리(versioning) 켬
   - 버킷 정책: `eval/*` 읽기는 전용 IAM 역할만 허용, 그 밖의 주체는 거부(3.8)
   - 버킷 정책: 파이프라인 역할과 사람 계정 모두 `raw/*`, `runs/*`, `assets/*`에 `s3:DeleteObject`, `s3:DeleteObjectVersion` 거부
-  - 버킷 정책: `raw/*`, `runs/*`, `assets/*`에 조건(`If-None-Match`) 없는 `s3:PutObject` 거부. 정책에 쓸 조건 키 이름은 구현 때 AWS 공식 문서로 확인
-    - 이 정책을 켜면 `aws s3 cp`, boto3 `upload_file`의 멀티파트 업로드(8MB 초과), 콘솔 업로드는 `If-None-Match` 헤더가 없어 거부됨. 수집 코드는 `put_object(..., IfNoneMatch='*')`로 씀
+  - 버킷 정책: `raw/*`, `runs/*`, `assets/*`에 조건(`If-None-Match`) 없는 `s3:PutObject` 거부. 조건 키는 `s3:if-none-match`(값이 없으면 거부, `Null` 조건). 멀티파트 업로드의 조각 요청(`CreateMultipartUpload`·`UploadPart`·`UploadPartCopy`)은 `s3:ObjectCreationOperation`이 거짓이라 이 거부에서 빠지고, 완료 요청(`CompleteMultipartUpload`)에서 판정됨(S3 조건부 쓰기 강제 문서, 11월 8일 확인)
+    - 이 정책을 켜면 `aws s3 cp`·`aws s3 sync`, 콘솔 업로드, 헤더 없는 서버 측 복사(CopyObject)는 거부됨. 멀티파트 업로드(boto3 `upload_file`의 8MB 초과 파일)는 완료 요청에 `If-None-Match`가 있으면 허용되고 없으면 완료 단계에서 거부됨. 수집 코드는 `put_object(..., IfNoneMatch='*')`로 씀. 로컬 파일을 한 번에 옮길 때는 `scripts/aws/20-upload-raw-root.py`를 씀
   - 종료 시 정리 순서는 6절 「프로젝트 종료 절차」
   - 공개 접근 차단(Block Public Access) 4개 항목 모두 켬
   - 기본 암호화: S3 관리형 키(SSE-S3)
@@ -245,8 +256,9 @@ s3://signal-data-{접미어}/
 | `raw/`, `runs/`, `assets/` | 새 키만. 덮어쓰기·삭제 금지 | 영구 | 재수집으로 같은 바이트를 얻는다는 보장이 없음(3.7). `runs/`는 공식 채점 실행의 입력 고정 기록 |
 | `derived/` | 덮어쓰기 허용 | 이전 버전 30일 | 원본과 파서 버전으로 다시 만들 수 있음 |
 | `eval/` | 덮어쓰기 허용, 접근 제한 | 영구 | 사람이 만든 평가 자료는 재생성 불가 |
-| `exports/runs/` | 덮어쓰기 허용 | 90일. 단 공식 실행(`exports/official.json`이 가리키는 실행)의 객체는 만료 제외. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴. 구현: 내보내기 작업이 모든 객체에 태그 `official=no`를 붙이고, 공식 실행이 되면 `official=yes`로 바꿈. 90일 만료 규칙은 태그가 `official=no`인 객체에만 적용 |
+| `exports/runs/` | 덮어쓰기 허용 | 90일. 단 공식 실행(`exports/official.json`이 가리키는 실행)의 객체는 만료 제외. `exports/official.json`은 영구 | 채점 실행에서 다시 만들 수 있음. 포인터는 현재 공식 실행을 가리킴. 구현: 내보내기 작업이 모든 객체에 태그 `official=no`를 붙이고, 공식 실행이 되면 `official=yes`로 바꿈. 90일 만료 규칙은 태그가 `official=no`인 객체에만 적용. 버전 관리 때문에 만료 뒤 남는 이전 버전은 1일 뒤 지움(3.7 `backups/`와 같은 이유, 11월 13일 데이터 엔지니어링·인프라(주영) 결정) |
 | `backups/` | 날짜별 새 키 | 35일 | 주 1회 덤프 5개 유지 |
+| `deploy/` | 커밋별 새 키 | 30일, 이전 버전 1일(가정) | 배포 묶음은 저장소에서 다시 만들 수 있음. 「미결」 |
 | `raw/data_go_fund/` 스냅숏 | 새 키만 | 객체 생성 30일 뒤 Standard-IA로 이동(날짜 기준) | 기준일별 전체 스냅숏이 쌓이므로 오래된 것을 저렴한 등급으로 옮김. 매주 수집하면 Standard에 남는 스냅숏은 약 4개. Standard-IA는 0.0138달러/GB월(Standard의 55%), 꺼내 읽을 때 0.01달러/GB |
 | 버킷 전체 | | 완료되지 않은 멀티파트 업로드 7일 뒤 정리 | 실패한 업로드의 조각이 남아 요금이 나가는 것을 막음 |
 
@@ -271,7 +283,7 @@ s3://signal-data-{접미어}/
   - 10월~11월은 DAG 개발 기간이라 Airflow 화면을 수시로 씀. 켜고 끄는 방식은 월 약 12.68달러를 아끼지만 개발 속도를 늦춤
   - t4g(ARM)는 t3보다 시간당 약 20% 쌈. 문제가 있으면 B로 바꿈(인스턴스 종류만 바꾸면 됨)
   - DB를 RDS로 분리했으므로 EC2를 꺼도 DB와 대시보드는 영향을 받지 않음
-- Airflow 버전: LocalExecutor. 설치 시 Airflow 공식 제약 파일(constraints)로 의존성 버전까지 고정. 2.x와 3.x 중 어느 쪽을 쓸지는 데이터 엔지니어링·인프라(주영)가 정리해 공유한 뒤 정함(「미결」)
+- Airflow 버전: LocalExecutor. 설치 시 Airflow 공식 제약 파일(constraints)로 의존성 버전까지 고정. 2.11.2로 정함(10월 25일 PM(대현) 동의, signal-pipeline `docs/architecture.md` 5-1). 아래 선택지는 정할 때의 비교
   - 2.x는 2026년 4월 22일에 지원 종료(EOL). 마지막 판은 2.11.2이고 이후 보안 수정이 나오지 않음(Apache Airflow 공식 문서 「Supported versions」)
   - 2.x는 웹 서버와 스케줄러 2개 프로세스. DAG 해석은 스케줄러 안에서 함
   - 3.x는 지원 중이지만 화면·API 서버(api-server), DAG 파일 해석기(dag-processor), 스케줄러(scheduler)가 각각 별도 프로세스로 떠서 2GB를 넘을 위험이 큼
@@ -321,7 +333,8 @@ s3://signal-data-{접미어}/
 - 근거: 같은 고정 IP를 B의 약 13분의 1 비용으로 얻음. 인바운드를 열지 않으면 공개 서브넷이라는 차이가 공격 면을 늘리지 않음
 - 순서: 탄력적 IP 할당 → EC2에 연결 → 그 IP로 금감원 법인 키 신청
 - 위험
-  - 탄력적 IP를 해제하면 같은 주소를 다시 받을 수 없음. Terraform 탄력적 IP 자원에 삭제 방지(`lifecycle { prevent_destroy = true }`)를 둠
+  - 탄력적 IP를 해제하면 같은 주소를 다시 받을 수 없음(다른 계정에 할당되지 않았을 때만 `allocate-address --address`로 되찾을 수 있음). AWS에는 탄력적 IP 자체의 삭제 방지 설정이 없어, IAM 정책 `signal-protect-eip`로 이 탄력적 IP의 해제(`ec2:ReleaseAddress`)를 거부하고 그룹 `signal-team`과 관리자 사용자 2명에 붙임(11월 8일). 관리자는 정책을 뗄 수 있으므로 실수 방지 수준
+  - 공인 IP는 SSM `/signal/infra/eip_public_ip`(String)에 적고 저장소에는 적지 않음
   - 탄력적 IP 할당 자원과 인스턴스 연결 자원을 분리해 둠. 인스턴스를 교체해도 IP 자원은 그대로이고 연결만 새 인스턴스로 바뀜
   - 인스턴스 교체 절차: 새 인스턴스 생성 → 탄력적 IP 연결을 새 인스턴스로 옮김 → 새 인스턴스에서 공인 IP 확인(`curl` 등으로 출구 IP 조회) → 금감원 API 시험 호출 → 이전 인스턴스 삭제
   - 계정이 폐쇄되면 IP도 사라지고 법인 키 재신청이 필요함(3.10)
@@ -464,12 +477,15 @@ s3://signal-data-{접미어}/
 | 주체 | 권한 |
 |---|---|
 | 루트 계정 | MFA 켬. 결제 설정 외에는 쓰지 않음. 결제 주체 PM(대현)이 보관 |
-| IAM 그룹 `signal-admin` | 관리자 권한. PM(대현), 데이터 엔지니어링·인프라(주영) |
-| IAM 그룹 `signal-dev` | EC2·RDS 읽기, Session Manager 접속, S3 버킷 읽기, SSM Parameter Store 읽기 없음. 분석·리서치(민석), 데이터 사이언스(다빈) |
-| EC2 인스턴스 역할 `signal-pipeline-ec2` | S3 버킷 읽기·쓰기(`raw/`, `runs/`, `assets/` 삭제 거부), SSM Parameter Store `/signal/*` 읽기, SSM 관리 정책 |
+| IAM 사용자 2명(그룹 없음) | AWS 관리형 정책 `AdministratorAccess`. PM(대현), 데이터 엔지니어링·인프라(주영) |
+| IAM 그룹 `signal-team` | AWS 관리형 정책 `PowerUserAccess`. 분석·리서치(민석), 데이터 사이언스(다빈). IAM을 뺀 모든 서비스를 쓸 수 있어 SSM 비밀값 읽기·S3 쓰기도 가능함 |
+| EC2 인스턴스 역할 `signal-pipeline-ec2` | `AmazonSSMManagedInstanceCore`(Session Manager), 버킷 목록 조회, `raw/`·`derived/`·`runs/`·`assets/`·`exports/`·`backups/`·`deploy/` 읽기·쓰기(`eval/` 없음, 삭제 권한 없음), `exports/` 태그 읽기·쓰기, SSM `/signal/*` 읽기와 SSM을 거친 KMS 복호화(`scripts/aws/policies/ec2-access.json`) |
+| 정책 `signal-protect-eip` | `signal-airflow` 탄력적 IP 해제 거부. 관리자 사용자 2명과 그룹 `signal-team`에 붙임(3.4) |
+| 역할 `signal-budgets-stop-ec2` | AWS Budgets가 맡는 실행 역할. 같은 계정의 예산만 맡을 수 있음(`aws:SourceAccount`·`aws:SourceArn` 조건). AWS 관리형 정책 `AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`(3.10) |
 
-- `eval/` 읽기는 전용 IAM 역할만 허용. `signal-dev`의 S3 버킷 읽기와 인스턴스 역할의 읽기에서 `eval/*`는 제외. 전용 역할을 누가 맡는지는 「미결」
-- 사람 계정은 IAM 사용자 4명 + MFA 필수. 액세스 키는 로컬 CLI용으로만 발급하고 90일마다 교체
+- 실제 권한은 위 표와 같음(10월 31일 PM(대현)이 사용자·그룹을 만들고, 11월 8일 데이터 엔지니어링·인프라(주영)가 그대로 두기로 함). 처음 설계한 그룹 `signal-admin`·`signal-dev`(EC2·RDS 읽기, Session Manager 접속, S3 읽기, SSM 읽기 없음)는 만들지 않음. 버킷 정책의 삭제 거부·`eval/` 거부는 이 권한과 관계없이 적용됨
+- `eval/` 읽기는 전용 IAM 역할만 허용. 버킷 정책이 그 역할 밖의 모든 주체를 거부함(`aws:PrincipalArn` 조건). 역할 이름 후보 `signal-eval`(PM 확인 전), 역할은 평가 자료를 올릴 때 만듦. 누가 맡는지는 「미결」
+- 사람 계정은 IAM 사용자 4명. MFA는 설정하지 않음(10월 31일 PM(대현) 결정). 액세스 키는 로컬 CLI용으로만 발급하고 90일마다 교체
 - 대시보드가 S3를 읽는 경우(3.9) 대시보드 전용 IAM 사용자를 두고 `exports/` 읽기만 허용. `s3:GetObject`는 `exports/*`에만, 목록 조회(`s3:ListBucket`)가 필요하면 `s3:prefix` 조건을 `exports/*`로 제한. 이 사용자의 키도 90일 교체 대상
 
 #### 비밀값
@@ -477,8 +493,20 @@ s3://signal-data-{접미어}/
 - 저장 위치: SSM Parameter Store 보안 문자열(SecureString), 표준 등급
 - 이름 규칙: `/signal/{용도}/{이름}`. 예: `/signal/dart/api_key`, `/signal/fss/corp_api_key`, `/signal/rds/pipeline_password`
 - 원본 보관 규칙의 metadata `credential_ref`에는 이 이름만 기록. 값은 기록하지 않음
-- Terraform에는 이름만 만들고 값은 AWS CLI로 넣음. 값이 Terraform 상태 파일에 들어가지 않게 함
+- 값은 `scripts/aws/00-put-secret.sh`로 넣음. 값을 화면·명령 인자·셸 기록에 남기지 않음(생성하거나 화면에 안 보이게 입력받음)
 - Secrets Manager는 쓰지 않음. 자동 교체 기능이 필요한 비밀값이 없음
+- 넣는 이름과 시점(11월 8일 결정)
+
+| 이름 | 종류 | 넣는 시점 | 읽는 곳 |
+|---|---|---|---|
+| `/signal/rds/master_password` | SecureString | RDS 생성 전(6절 5) | `03-rds.sh` |
+| `/signal/rds/owner_password`, `pipeline_password`, `reader_password`, `airflow_password` | SecureString | DB 계정을 만들 때(PM(대현)) | 마이그레이션, DAG 작업, 대시보드, Airflow 메타데이터 DB 연결 |
+| `/signal/airflow/fernet_key`, `webserver_secret_key`, `admin_password` | SecureString | EC2 설정 전(6절 10) | Airflow `*_CMD` 설정, 관리자 계정 생성 |
+| `/signal/dart/api_key` | SecureString | EC2 설정 전 | DAG 수집 작업(`OPENDART_API_KEY`) |
+| `/signal/llm/bedrock_api_key` | SecureString | 있음(PM(대현) 개인 계정 Bedrock) | LLM 추출 작업 |
+| `/signal/infra/rds_endpoint`, `/signal/infra/eip_public_ip` | String(비밀 아님) | 스크립트가 적음(6절 5·6) | EC2 설정, 금감원 IP 등록 |
+
+- 크롤러 2차(Week 8)에 `/signal/data_go_kr/api_key`, `/signal/krx/api_key`, 금감원 수집 재개 때 `/signal/fss/corp_api_key`를 더함. 코드에서 쓰지 않는 `FINLIFE_API_KEY`, `LAW_API_OC`는 넣지 않음
 
 ### 3.9 대시보드 연결
 
@@ -530,6 +558,7 @@ s3://signal-data-{접미어}/
   - 한계: 50달러는 보장된 지출 상한이 아니라 운영 목표임. AWS Budgets의 비용 데이터는 보통 8~12시간 간격으로 갱신되어 EC2 중지가 늦어질 수 있고, EC2를 중지해도 RDS 실행 비용과 S3 저장 비용은 계속 나가므로 월 지출이 50달러를 넘을 수 있음
   - 다시 켜는 것은 PM(대현)이 원인 확인 후 수동
   - 예산 동작이 EC2를 멈추려면 `budgets.amazonaws.com`이 맡는 실행 역할(`ec2:StopInstances`, `ssm:StartAutomationExecution` 허용)이 필요. 구축 확인 단계에서 임계값을 낮춰 실제로 중지되는지 시험(6절)
+  - 구축 값(11월 8일 결정, `scripts/aws/05-budgets.sh`): 기존 예산 `monthly-50usd`에 동작 1개. 실제 비용(ACTUAL) 100%, `RUN_SSM_DOCUMENTS`/`STOP_EC2_INSTANCES`, 대상 `signal-airflow`, 자동 승인. 실행 역할 `signal-budgets-stop-ec2`에 AWS 관리형 정책 `AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`을 붙이고, 정책 내용이 넓으면 위 두 권한만 넣은 정책으로 바꿈(「미결」). 동작 알림은 PM(대현)·데이터 엔지니어링·인프라(주영), 메일 주소는 실행 때 인자로 넘김
 - 크레딧 잔액 확인: 매주 월요일 PM(대현)이 결제 콘솔에서 확인하고, 사람이 놓치는 경우에 대비해 알림으로 보강
   - 크레딧 차감 후 금액(실제 청구액) 기준 예산을 하나 더 두고 1달러 초과 시 알림. 크레딧이 다 떨어져 실제 청구가 시작되면 바로 알 수 있음
   - 무료 요금제 종료 안내 메일을 받는 주소가 PM(대현) 계정 메일인지 계정 생성 때 확인
@@ -549,7 +578,7 @@ s3://signal-data-{접미어}/
 - 유료 전환 결정 시점(제안): 크레딧 잔액이 40달러(권고안 약 1개월분) 이하가 되는 주. 100달러만 받은 경우 11월 말
 - 유료 전환은 결제 주체 PM(대현) 계정에서 수행
 - 전환하면 무료 요금제 인스턴스 제한이 풀림. 남은 크레딧이 전환 후에도 유지되는지는 공식 확인 필요(「미결」)
-- 프로젝트 종료(12월) 후 자원 정리: 덤프와 `raw/`·`runs/`를 외부 보관처로 옮긴 뒤 Terraform으로 삭제
+- 프로젝트 종료(12월) 후 자원 정리: 덤프와 `raw/`·`runs/`를 외부 보관처로 옮긴 뒤 6절 「프로젝트 종료 절차」대로 AWS CLI로 삭제
 
 ## 4. 월 비용 표
 
@@ -596,88 +625,123 @@ s3://signal-data-{접미어}/
 
 ## 5. 구성 그림
 
+- 아키텍처 v2 그림 반영 목록(11월 8일 데이터 엔지니어링·인프라(주영))에 맞춘 그림. 인프라 항목의 정본은 `scripts/aws/` 스크립트이고, DAG 구성의 정본은 signal-pipeline `docs/architecture.md`와 DAG 코드
+- 대시보드 연결은 3.9 권고안(미결)을 그림
+
 ```mermaid
 flowchart LR
     subgraph EXT["외부 소스"]
         DART["OPEN DART"]
-        KOFIA["금투협 전자공시"]
-        FSS["금감원 API<br/>(법인 키, 요청 IP 등록)"]
         PORTAL["공공데이터포털(data_go_fund)·KRX(krx_etf_daily)"]
+        FSS["금감원 API<br/>(법인 키, 요청 IP 등록)"]
     end
 
     subgraph AWS["AWS 서울 리전"]
-        subgraph VPC["VPC"]
-            subgraph PUB["공개 서브넷 (ap-northeast-2a)"]
-                EC2["EC2 t4g.small<br/>Airflow LocalExecutor<br/>pdfplumber·curl<br/>인바운드 없음"]
-                EIP(["탄력적 IP"])
+        subgraph VPC["VPC 10.0.0.0/16"]
+            IGW["인터넷 게이트웨이"]
+            subgraph PUB["공개 서브넷 2a"]
+                subgraph EC2["EC2 t4g.small signal-airflow<br/>인바운드 없음, 탄력적 IP"]
+                    EXTRACT["DAG signal_extract<br/>수집 → 추출·절 분할 → 적재"]
+                    SCORE["DAG signal_score<br/>LLM 추출 → 채점 → 게시"]
+                    AGENT["CodeDeploy 에이전트"]
+                end
             end
-            subgraph PRIV["사설 서브넷 2개 (2a, 2c)"]
-                RDS[("RDS PostgreSQL<br/>db.t4g.micro<br/>DB signal: raw·staging·mart<br/>DB airflow")]
+            subgraph PRIV["사설 서브넷 2a·2c"]
+                RDS[("RDS PostgreSQL 16 db.t4g.micro<br/>DB signal: raw·staging·mart<br/>DB airflow")]
             end
         end
         VPCE["S3 게이트웨이 엔드포인트"]
-        S3[("S3 signal-data-{접미어}<br/>raw/ derived/ runs/ assets/<br/>eval/ exports/ backups/")]
-        SSM["SSM Parameter Store<br/>/signal/*"]
+        S3[("S3 signal-data-{접미어}<br/>raw/ derived/ runs/ assets/ eval/<br/>exports/ backups/ deploy/")]
+        SSM["SSM Parameter Store /signal/*"]
         SM["SSM Session Manager"]
-        BUD["AWS Budgets<br/>50달러 도달 시 EC2 중지"]
+        CD["CodeDeploy"]
+        BUD["AWS Budgets<br/>monthly-50usd"]
+        CW["CloudWatch<br/>기본 지표 + RDS Database Insights"]
     end
 
-    DASH["대시보드<br/>Streamlit Community Cloud<br/>(Week 7 결정 대기)"]
-    TEAM["팀원 4인<br/>AWS CLI"]
+    BEDROCK["Amazon Bedrock Nova 2 Lite<br/>(PM 개인 계정)"]
+    GHA["GitHub Actions"]
+    DASH["대시보드<br/>Streamlit Community Cloud<br/>(3.9 권고안, 미결)"]
+    TEAM["IAM 사용자 4명<br/>(관리자 2, PowerUser 2)"]
 
-    EIP --- EC2
-    EC2 -- "수집 요청(출구 IP = 탄력적 IP)" --> EXT
-    EC2 -- "원본·추출 텍스트·manifest" --> VPCE --> S3
-    EC2 -- "5432" --> RDS
-    EC2 -- "비밀값 읽기" --> SSM
-    TEAM -- "셸·포트 전달" --> SM
-    SM --> EC2
+    EXTRACT -- "수집 요청(출구 IP = 탄력적 IP)" --> IGW --> EXT
+    EXTRACT -- "raw/ 원본, derived/ 추출 텍스트" --> VPCE
+    SCORE -- "runs/ LLM 요청·응답, exports/ 게시" --> VPCE
+    EC2 -- "주 1회 pg_dump → backups/" --> VPCE
+    VPCE --> S3
+    EXTRACT -- "5432" --> RDS
+    SCORE -- "5432" --> RDS
+    EXTRACT -. "EXTRACT 완료 → SCORE" .-> SCORE
+    SCORE -- "LLM 호출" --> BEDROCK
+    EC2 -- "비밀값 읽기(DB·DART·Airflow·Bedrock 키)" --> SSM
+    TEAM -- "셸·포트 전달" --> SM --> EC2
+    GHA -- "배포 묶음 → deploy/(OIDC 역할)" --> S3
+    GHA -- "배포 만들기" --> CD
+    AGENT -. "에이전트가 가져감" .-> CD
     S3 -- "exports/ 읽기 전용" --> DASH
+    BUD -. "50달러 도달 시 중지" .-> EC2
     BUD -. "알림 메일" .-> TEAM
-    BUD -. "중지 동작" .-> EC2
+    CW -. "지표" .- RDS
 ```
 
 ## 6. 구축 순서와 Terraform 범위
 
-### DB 구축 티켓에 넘길 단계 (1번은 Week 6, 2번부터는 Week 7)
+- 구축은 AWS CLI 스크립트(`scripts/aws/`)로 함. 실행 순서와 사용법은 [scripts/aws/README.md](../scripts/aws/README.md). Terraform 코드는 같은 구성의 백업으로 두고 적용하지 않음(10월 31일 12차 미팅 결정)
+- 스크립트는 이름 태그로 먼저 조회하고 없을 때만 만들어 다시 실행해도 됨. 만든 자원 ID는 파일로 남기지 않고 `Project=signal` 태그로 조회함. 자원 이름은 `signal-{자원}[-{가용 영역}]`, 모든 자원에 태그 `Project=signal`·`Name`(11월 8일)
 
-1. 계정 준비(PM(대현), Week 6에 계정 생성 직후 수행)
-   - 루트 MFA, IAM 그룹 2개·사용자 4명·MFA
+### DB 구축 티켓에 넘길 단계
+
+1. 계정 준비(PM(대현), 10월 31일)
+   - 루트 MFA, IAM 사용자 4명·그룹 `signal-team`(3.8)
    - 활동 크레딧 5개 수행
    - 무료 요금제 제한(인스턴스 종류, RDS, EventBridge Scheduler 사용 가능 여부) 콘솔에서 확인
-   - AWS Budgets 월 상한 50달러, 알림 25·40·50달러(실제·예측 각각)
-2. Terraform 상태 저장용 S3 버킷 생성(버전 관리 켬). 이 버킷 하나만 콘솔 또는 CLI로 만듦
-3. Terraform 1차 적용: VPC, 서브넷 3개, 인터넷 게이트웨이, 라우팅 표, 보안 그룹 2개, S3 게이트웨이 엔드포인트
-4. Terraform 2차 적용: S3 데이터 버킷(버전 관리, 공개 차단, 버킷 정책, 수명 주기), SSM 파라미터 이름
-5. Terraform 3차 적용: RDS(DB 서브넷 그룹, 파라미터 그룹, 자동 백업 7일, 삭제 보호)
-6. Terraform 4차 적용: EC2 인스턴스 역할, EC2 t4g.small, 탄력적 IP(삭제 방지)와 연결, Budgets EC2 중지 동작과 그 실행 역할(`budgets.amazonaws.com`이 맡음, `ec2:StopInstances`·`ssm:StartAutomationExecution` 허용)
-7. arm64 의존성 검증: 설치 가능 여부는 10월 18일 확인 완료(3.3). Week 7 적용 전에 Apple Silicon Mac에서 `docker run --platform linux/arm64`로 Airflow와 signal-pipeline이 실제로 실행되는지 확인. 구축 때 EC2에서 팀 Python 의존성 전체를 `pip install --dry-run`으로 다시 확인. 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
-8. 탄력적 IP 확정 즉시 금감원 법인 키 신청
-9. 비밀값 입력: AWS CLI로 SSM 파라미터 값 저장
-10. EC2 초기 설정: 스왑 2GB, `curl`·PostgreSQL 클라이언트 설치, Airflow 설치(3.3에서 정한 버전, 공식 제약 파일로 버전 고정, LocalExecutor, 메타데이터 DB = RDS `airflow`). 2GB 메모리용 설정: 웹 서버 워커 1개(`AIRFLOW__WEBSERVER__WORKERS=1`), DAG 해석 프로세스 1개(`AIRFLOW__SCHEDULER__PARSING_PROCESSES=1`), 예시 DAG 끄기(`AIRFLOW__CORE__LOAD_EXAMPLES=False`). Airflow와 signal-pipeline은 가상환경을 나눔: Airflow는 자체 가상환경에 공식 제약 파일로 설치하고, signal-pipeline은 별도 가상환경에 `uv.lock` 그대로 설치하며, DAG 작업은 `uv run`으로 signal-pipeline 코드를 실행함. 이유: `uv.lock` 운영 의존성 15개 중 8개가 Airflow 제약 파일과 버전이 달라(예: cryptography 50.0.2 / 44.0.3) 한 환경에 고정 버전으로 설치되지 않고, 버전 범위로 넣으면 팀 패키지 9개(pillow 포함)가 `uv.lock`과 다른 버전으로 설치됨(10월 18일 데이터 엔지니어링·인프라(주영) 확인). 설치한 Airflow·pdfplumber 버전을 기록하고 pdfplumber 버전을 파서 버전에 반영
-11. DB 초기화: 데이터베이스 2개, 스키마 3개, DB 계정 4개, ERD v2.2 DDL 적용(마이그레이션은 signal-pipeline 쪽 코드. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체)
+   - AWS Budgets 월 상한 50달러(예산 `monthly-50usd`), 알림 25·40·50달러(실제·예측 각각)
+2. RDS 마스터 비밀번호 생성·저장(`00-put-secret.sh /signal/rds/master_password --generate password`)
+3. 네트워크(`01-network.sh`): VPC `10.0.0.0/16`, 공개 서브넷 2a `10.0.0.0/24`, 사설 서브넷 2a `10.0.10.0/24`·2c `10.0.11.0/24`(`10.0.1.0/24`는 공개 2c용으로 비워 두고 만들지 않음), 공인 IP 자동 할당 끔, 인터넷 게이트웨이, 라우팅 표 2개(공개·사설), 보안 그룹 2개(`signal-ec2-sg`, `signal-rds-sg`), S3 게이트웨이 엔드포인트(공개 라우팅 표에만 연결. S3를 쓰는 것은 EC2뿐)
+4. S3 데이터 버킷(`02-s3.sh`): 버전 관리, 공개 차단, 기본 암호화, 버킷 정책, 수명 주기(3.2·3.7)
+5. RDS(`03-rds.sh`): DB 서브넷 그룹, 파라미터 그룹, 인스턴스(3.1 「구축 값」). 엔드포인트를 SSM `/signal/infra/rds_endpoint`에 적음
+6. EC2(`04-ec2.sh`): 인스턴스 역할·인스턴스 프로필 `signal-pipeline-ec2`, 탄력적 IP `signal-eip`와 해제 거부 정책 `signal-protect-eip`(3.4), EC2 `signal-airflow`(Amazon Linux 2023 표준 arm64 최신 AMI를 SSM 공개 파라미터로 읽음, t4g.small, 공개 서브넷 2a, gp3 20GB, IMDSv2 필수·홉 제한 1, SSH 키 없음, user data 없음)와 탄력적 IP 연결. 이어서 Budgets EC2 중지 동작과 실행 역할(`05-budgets.sh`, 3.10)
+   - 루트 볼륨 암호화(`aws/ebs`, 요금 없음), CPU 크레딧 standard(11월 13일 데이터 엔지니어링·인프라(주영) 결정). standard는 크레딧이 바닥나면 추가 요금 없이 기준 성능(vCPU당 20%)으로 느려짐. 기본값 unlimited는 느려지지 않는 대신 초과분에 요금이 붙음. 전량 재추출처럼 CPU를 오래 쓰는 실행이 느려지는 것을 받아들이고 예상 밖 요금을 막는 쪽을 택함
+7. arm64 실행 확인: Apple Silicon Mac의 Amazon Linux 2023 arm64 컨테이너(systemd, 메모리 2GB·CPU 2개)에서 10번 스크립트를 그대로 실행해 Airflow와 signal-pipeline이 실제로 실행되는지 확인(`scripts/aws/local-test/ec2-sim.sh`). 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
+8. 탄력적 IP 확정 즉시 금감원 법인 키 신청. 공인 IP는 SSM `/signal/infra/eip_public_ip`
+9. 비밀값 입력(`00-put-secret.sh`, 3.8 「비밀값」 표)
+10. EC2 초기 설정(`10-ec2-setup.sh`, Session Manager 셸에서 root로 실행. user data로 쓰지 않음. 설치가 RDS `airflow` DB·SSM 값에 의존해 첫 부팅 자동 실행과 순서가 맞지 않기 때문)
+    - dnf 업데이트 한 번(이후 수동), 스왑 파일 2GB, 패키지(`python3.12`, PostgreSQL 16 클라이언트, `git`, `jq`, AWS CLI)
+    - 사용자 `airflow:airflow`. 경로: `AIRFLOW_HOME` `/opt/signal/airflow`, Airflow 가상환경 `/opt/signal/airflow-venv`, 코드 `/opt/signal/signal-pipeline`(공개 저장소를 태그로 받음. 나중에 CodeDeploy도 같은 위치), 파이프라인 가상환경 `/opt/signal/signal-pipeline/.venv`, 환경 설정 `/etc/sysconfig/airflow`, 작업 기록 `/var/lib/signal`, 임시 파일 `/tmp/signal`. DAG 폴더는 signal-pipeline 저장소 루트 `dags/`
+    - Airflow 2.11.2를 자체 가상환경에 pip와 공식 제약 파일로 설치(postgres·amazon 추가 패키지). signal-pipeline은 별도 가상환경에 `uv.lock` 그대로 설치하고, DAG 작업은 `uv run`으로 실행. 두 가상환경은 dnf `python3.12` 하나를 같이 씀. uv는 버전을 고정한 실행 파일(GitHub 릴리스, sha256 확인)이고 `UV_PYTHON=/usr/bin/python3.12`, `UV_PYTHON_DOWNLOADS=never`. 가상환경을 나누는 이유: `uv.lock` 운영 의존성 15개 중 8개가 Airflow 제약 파일과 버전이 달라(예: cryptography 50.0.2 / 44.0.3) 한 환경에 고정 버전으로 설치되지 않고, 버전 범위로 넣으면 팀 패키지 9개(pillow 포함)가 `uv.lock`과 다른 버전으로 설치됨(10월 18일 데이터 엔지니어링·인프라(주영) 확인)
+    - 2GB 메모리용 설정: LocalExecutor, 전체 동시 작업 2·DAG당 2, 웹 서버 워커 1개, DAG 해석 프로세스 1개, 예시 DAG 끔, 지난 실행 보충(catchup) 기본 끔, pool `signal_cpu` 슬롯 2(signal-pipeline `docs/architecture.md` 2-3)
+    - 비밀값: 메타데이터 DB 연결 문자열·Fernet 키·웹 서버 비밀 키는 SSM을 읽는 명령으로 넘김(Airflow `*_CMD` 설정). 서버에 평문 비밀값 파일을 두지 않음. 메타데이터 DB = RDS `airflow`(TLS 필수, `sslmode=require`)
+    - 프로세스: Airflow 공식 예시 기반 systemd 서비스 2개(웹 서버·스케줄러, 실패 시 자동 재시작). 웹 화면은 `127.0.0.1:8080`에만 열고 Session Manager 포트 전달로 접속. 공용 관리자 계정 1개(비밀번호 SSM)
+    - 로그: `AIRFLOW_HOME/logs`, 14일 지난 파일을 매일 지우는 systemd 타이머, journald 상한 200MB. S3 원격 로그는 쓰지 않음
+    - CodeDeploy 에이전트 설치(서울 리전 공식 설치 경로)와 부팅 시 자동 시작. 배포 설정은 Week 8
+    - 설치한 Airflow·uv·pdfplumber·pg_dump 버전과 디스크 사용량을 `/var/lib/signal/setup-report.txt`에 남김. pdfplumber 버전을 파서 버전에 반영
+11. DB 초기화: 데이터베이스 2개·DB 계정 4개(PM(대현)), 스키마 3개·ERD v2.2 DDL(signal-pipeline `db/apply.py`, 이력 표 `public.schema_migrations`. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체). 로컬에 적재한 결과는 DB는 `pg_dump`/`pg_restore`(데이터만), 파일은 `scripts/aws/20-upload-raw-root.py`로 옮김(순서는 [scripts/aws/README.md](../scripts/aws/README.md))
 12. 확인
     - Session Manager로 4인 모두 접속
     - S3 `raw/`: 조건부 쓰기 성공, 같은 키 재쓰기 실패, 조건 없는 쓰기 거부, 삭제 거부
-    - S3 `raw/`: 8MB 넘는 파일 업로드(`put_object(..., IfNoneMatch='*')`로 성공하는지, 멀티파트 업로드가 거부되는지)
-    - Budgets 중지 동작: 임계값을 낮춰 EC2가 실제로 중지되는지 시험한 뒤 50달러로 되돌림
+    - S3 `raw/`: `If-None-Match` 없는 멀티파트 업로드 완료가 거부되는지, 8MB 넘는 파일을 `put_object(..., IfNoneMatch='*')`로 쓸 수 있는지
+    - Budgets 중지 동작: 임계값을 낮춰(`BUDGET_THRESHOLD=1`로 `05-budgets.sh`) EC2가 실제로 중지되는지 시험한 뒤 100%로 되돌림
     - S3 `derived/`: 같은 키 덮어쓰기 성공, 이전 버전 남음
     - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, 추출 병렬 2로 DART PDF 50건 연속 처리 중 스왑 500MB 이하, 300초 초과 파일 0건). 넘으면 t3.small로 전환하고, 같은 2GB이므로 추출 병렬 1로도 시험
     - 위 50건 연속 처리에서 파일별 pdfplumber 처리 시간과 최대 메모리 기록
+    - RDS `SHOW max_connections`를 Airflow 연결 풀·작업 프로세스 연결 수와 비교
+    - 설치 뒤 루트 볼륨 사용량(`df`)을 기록하고 20GB가 충분한지 확인
 
 ### 프로젝트 종료 절차
 
-- 버킷 정책이 `raw/`·`runs/` 삭제를 거부하고, 탄력적 IP와 RDS에 삭제 방지가 걸려 있어 `terraform destroy`를 바로 실행하면 실패함. 아래 순서로 해제
+- 버킷 정책이 `raw/`·`runs/`·`assets/` 삭제를 거부하고, 탄력적 IP 해제 거부 정책과 RDS 삭제 보호가 걸려 있어 바로 지우면 실패함. 정리 스크립트는 만들지 않고 아래 순서를 AWS CLI로 실행(11월 8일)
 1. AWS 밖 보관처로 최종 `pg_dump`, `raw/`, `runs/`, `eval/`, `assets/` 복사 후 해시 대조(3.7)
-2. Budgets EC2 중지 동작 해제, EventBridge Scheduler 삭제(있으면)
-3. EC2 중지 후 삭제. 금감원 법인 키 사용 종료 처리
-4. RDS 삭제 보호 해제 → 최종 스냅숏 없이 삭제(최종 덤프는 1에서 확보)
-5. Terraform에서 탄력적 IP의 삭제 방지를 지우고 적용 → 탄력적 IP 해제
-6. S3 버킷 정책에서 삭제 거부 문장 제거 → 수명 주기로 모든 버전 만료 또는 전체 버전 삭제 → 버킷 삭제
-7. 나머지 자원 `terraform destroy` → Terraform 상태 버킷 삭제
-8. IAM 사용자·액세스 키 삭제, 계정 해지 여부는 PM(대현)이 결정
+2. Budgets EC2 중지 동작 삭제(`aws budgets delete-budget-action`), EventBridge Scheduler 삭제(있으면)
+3. EC2 중지 후 종료(`aws ec2 terminate-instances`). 금감원 법인 키 사용 종료 처리
+4. RDS 삭제 보호 해제(`aws rds modify-db-instance --no-deletion-protection`) → 최종 스냅숏 없이 삭제(최종 덤프는 1에서 확보) → DB 서브넷 그룹·파라미터 그룹 삭제
+5. 정책 `signal-protect-eip`를 그룹·사용자에서 떼고 삭제(`aws iam detach-group-policy`·`detach-user-policy`·`delete-policy`) → 탄력적 IP 해제(`aws ec2 release-address`)
+6. S3 버킷 정책 삭제(`aws s3api delete-bucket-policy`) → 수명 주기로 모든 버전 만료 또는 전체 버전 삭제 → 버킷 삭제
+7. S3 게이트웨이 엔드포인트, 보안 그룹 2개, 서브넷 3개, 라우팅 표 2개, 인터넷 게이트웨이(VPC에서 떼고 삭제), VPC 순서로 삭제. 역할 `signal-pipeline-ec2`(인스턴스 프로필 포함)·`signal-budgets-stop-ec2` 삭제
+8. IAM 사용자·액세스 키 삭제, SSM 파라미터 삭제, 계정 해지 여부는 PM(대현)이 결정
 
-### Terraform으로 관리할 범위
+### Terraform 백업 코드의 범위
+
+- 구축에 쓰지 않는 백업 코드의 범위. 계정 리전 네임스페이스 버킷을 Terraform이 지원하는지는 「미결」
 
 | 관리함 | 관리하지 않음 |
 |---|---|
@@ -705,15 +769,18 @@ flowchart LR
 | 활동 크레딧 5개 수행 여부와 수행 결과(받은 크레딧 금액) | PM(대현) | AWS 계정 생성 후 1주 안 |
 | 유료 전환 시 남은 크레딧이 유지되는지 | PM(대현) | 12월 1일 |
 | AWS Budgets를 크레딧 차감 전 금액 기준으로 설정할 수 있는지 | PM(대현) | AWS 계정 생성 직후 |
-| t4g(ARM)에서 Airflow·signal-pipeline 실제 실행 여부(설치 가능 여부는 10월 18일 확인), HWP 처리 도구의 arm64 지원. 안 되면 t3.small(월 +3.80달러) | 데이터 엔지니어링·인프라(주영) | Week 7 적용 전(arm64 docker) |
-| Airflow 버전과 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0, PDF 50건 연속 처리 중 스왑 500MB 이하·300초 초과 0건) 통과 여부. 넘으면 t3.small로 전환 | 데이터 엔지니어링·인프라(주영) | 10월 15일~28일 구축 중 |
-| Airflow 버전: 2.11.2 유지(2026년 4월 22일 지원 종료, 보안 수정 없음) / 3.x 시험(2GB 초과 위험) / 메모리 4GB 인스턴스(3.3) | PM(대현)·데이터 엔지니어링·인프라(주영) | 데이터 엔지니어링·인프라(주영)가 정리해 공유한 뒤 |
+| t4g(ARM)에서 Airflow·signal-pipeline 실제 실행 여부(설치 가능 여부는 10월 18일 확인), HWP 처리 도구의 arm64 지원. 안 되면 t3.small(월 +3.80달러). 11월 13일 Amazon Linux 2023 arm64 컨테이너 리허설(`scripts/aws/local-test/ec2-sim.sh`)에서 `10-ec2-setup.sh`가 끝까지 돌고 Airflow 2.11.2와 signal-pipeline 가상환경이 같은 Python 3.12.15로 실행됨(DART PDF 50건 추출 DAG 성공). HWP 도구는 아직 쓰지 않아 미확인. EC2에서 한 번 더 확인 | 데이터 엔지니어링·인프라(주영) | EC2 생성 직후 |
+| 2GB 메모리 합격 기준(유휴 1.2GB 이하·스왑 0, PDF 50건 연속 처리 중 스왑 500MB 이하·300초 초과 0건) 통과 여부. 넘으면 t3.small로 전환. 11월 13일 컨테이너 측정 2회(메모리 2GB·CPU 2개, CodeDeploy 에이전트 켬): 유휴 사용 메모리 평균 0.60GB·최대 0.69GB·측정 중 스왑 증가 없음, 추출 병렬 2로 50건 처리 중 최대 1.06~1.20GB·스왑 30MB 미만, 파일당 중앙값 5.5~7.0초·최대 21~27초, 300초 초과 0건. 컨테이너에는 cgroup 밖 커널 메모리와 SSM 에이전트 등이 빠져 있어 EC2에서 다시 재어 확정 | 데이터 엔지니어링·인프라(주영) | EC2 설정 직후 |
 | `document.distributor_id` 외래 키를 두지 않고 적재 검증으로 대체하는 판단을 ERD에 반영할지. 10월 18일 기준 ERD v2.2(signal-pipeline dev) DBML에는 외래 키가 남아 있음 | PM(대현) | DB 초기화(6절 11) 전 |
 | 평가 자료 접근 분리의 DB 쪽(검토 번호 B4): `eval` 스키마를 둘지. 저장소 쪽은 `eval/` 접두어 + 전용 IAM 역할로 확정 | 팀 | evaluation 표 추가 전 |
-| `eval/` 전용 IAM 역할 이름 | PM(대현) | 10월 15일 구축 시작 전 |
+| `eval/` 전용 IAM 역할 이름. 후보 `signal-eval`로 버킷 정책에 들어가 있음. 바꾸면 `EVAL_ROLE=<이름>`으로 `02-s3.sh`를 다시 실행 | PM(대현) | 평가 자료를 올리기 전 |
 | `exports/runs/{score_run_id}/dashboard_documents.parquet`에 담을 칼럼: 드릴다운에 필요한 칼럼만 vs 문서 전문 포함(전문은 GB 규모 가능, Streamlit 메모리 위험)(3.9) | 데이터 사이언스(다빈)·PM(대현) | 대시보드 구현 전 |
 | 계정 폐쇄 대비 AWS 밖 백업 보관처 | PM(대현) | 11월 15일 |
 | 금감원 법인 키 신청 담당 | PM(대현)이 지정 | 탄력적 IP 할당 직후 |
+| `deploy/` 접두어 쓰기 규칙·보관 기간. 지금 스크립트 값은 가정(조건 없는 쓰기, 30일, 이전 버전 1일) | 데이터 엔지니어링·인프라(주영), PM(대현) | CodeDeploy 구축 전(Week 8) |
+| Budgets 실행 역할의 관리형 정책(`AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`) 내용 확인. 넓으면 `ec2:StopInstances`·`ssm:StartAutomationExecution`만 넣은 정책으로 바꿈 | 데이터 엔지니어링·인프라(주영) | `05-budgets.sh` 실행 전 |
+| RDS 생성 요청의 Database Insights Standard 인자(`DatabaseInsightsMode`, Performance Insights 7일)와 연장 지원 끔이 그대로 받아지는지. 로컬 모의 서버로는 확인하지 못함 | 데이터 엔지니어링·인프라(주영) | `03-rds.sh` 실행 때 |
+| Terraform 백업 코드가 계정 리전 네임스페이스 버킷을 지원하는지 | 데이터 엔지니어링·인프라(주영) | Terraform 백업 코드 작성 때 |
 
 ## 참고
 

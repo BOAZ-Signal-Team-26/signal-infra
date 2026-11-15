@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListDataBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::{{BUCKET}}"
+    },
+    {
+      "Sid": "ReadWriteDataPrefixesExceptEval",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": [
+        "arn:aws:s3:::{{BUCKET}}/raw/*",
+        "arn:aws:s3:::{{BUCKET}}/derived/*",
+        "arn:aws:s3:::{{BUCKET}}/runs/*",
+        "arn:aws:s3:::{{BUCKET}}/assets/*",
+        "arn:aws:s3:::{{BUCKET}}/exports/*",
+        "arn:aws:s3:::{{BUCKET}}/backups/*",
+        "arn:aws:s3:::{{BUCKET}}/deploy/*"
+      ]
+    },
+    {
+      "Sid": "TagExports",
+      "Effect": "Allow",
+      "Action": ["s3:GetObjectTagging", "s3:PutObjectTagging"],
+      "Resource": "arn:aws:s3:::{{BUCKET}}/exports/*"
+    },
+    {
+      "Sid": "ReadSignalParameters",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
+      "Resource": "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/*"
+    },
+    {
+      "Sid": "DecryptSecureStringViaSsm",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "kms:ViaService": "ssm.{{REGION}}.amazonaws.com" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "Rules": [
+    {
+      "ID": "derived-noncurrent-30d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "derived/" },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 30 }
+    },
+    {
+      "ID": "exports-runs-not-official-90d",
+      "Status": "Enabled",
+      "Filter": {
+        "And": {
+          "Prefix": "exports/runs/",
+          "Tags": [{ "Key": "official", "Value": "no" }]
+        }
+      },
+      "Expiration": { "Days": 90 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    },
+    {
+      "ID": "backups-35d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "backups/" },
+      "Expiration": { "Days": 35 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    },
+    {
+      "ID": "backups-delete-markers",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "backups/" },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    },
+    {
+      "ID": "deploy-30d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "deploy/" },
+      "Expiration": { "Days": 30 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 }
+    },
+    {
+      "ID": "deploy-delete-markers",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "deploy/" },
+      "Expiration": { "ExpiredObjectDeleteMarker": true }
+    },
+    {
+      "ID": "data-go-fund-ia-30d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "raw/data_go_fund/" },
+      "Transitions": [{ "Days": 30, "StorageClass": "STANDARD_IA" }]
+    },
+    {
+      "ID": "abort-incomplete-multipart-7d",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    }
+  ]
+}
