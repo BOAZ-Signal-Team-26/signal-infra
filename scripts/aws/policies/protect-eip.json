@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyReleaseSignalEip",
+      "Effect": "Deny",
+      "Action": "ec2:ReleaseAddress",
+      "Resource": "arn:aws:ec2:{{REGION}}:{{ACCOUNT_ID}}:elastic-ip/{{ALLOCATION_ID}}"
+    }
+  ]
+}

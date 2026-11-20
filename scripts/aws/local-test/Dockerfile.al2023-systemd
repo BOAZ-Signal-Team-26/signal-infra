@@ -1,0 +1,10 @@
+# EC2(Amazon Linux 2023 arm64)를 흉내 내는 리허설용 이미지. systemd를 PID 1로 띄운다.
+# AMI에 기본으로 있는 것만 미리 넣는다(systemd, sudo, Session Manager 에이전트, AWS CLI, curl).
+# 나머지는 10-ec2-setup.sh가 설치한다. 리허설 전용이고 운영에는 쓰지 않는다.
+FROM amazonlinux:2023
+RUN dnf -y -q install systemd systemd-udev sudo procps-ng awscli-2 amazon-ssm-agent findutils hostname \
+    && dnf clean all \
+    && systemctl mask systemd-logind.service getty.target console-getty.service systemd-udevd.service \
+    && systemctl enable amazon-ssm-agent
+STOPSIGNAL SIGRTMIN+3
+CMD ["/usr/lib/systemd/systemd"]
