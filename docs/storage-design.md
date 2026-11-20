@@ -480,11 +480,12 @@ s3://signal-data-{접미어}/
 | 루트 계정 | MFA 켬. 결제 설정 외에는 쓰지 않음. 결제 주체 PM(대현)이 보관 |
 | IAM 사용자 2명(그룹 없음) | AWS 관리형 정책 `AdministratorAccess`. PM(대현), 데이터 엔지니어링·인프라(주영) |
 | IAM 그룹 `signal-team` | AWS 관리형 정책 `PowerUserAccess`. 분석·리서치(민석), 데이터 사이언스(다빈). IAM을 뺀 모든 서비스를 쓸 수 있어 SSM 비밀값 읽기·S3 쓰기도 가능함 |
-| EC2 인스턴스 역할 `signal-pipeline-ec2` | `AmazonSSMManagedInstanceCore`(Session Manager), 버킷 목록 조회, `raw/`·`derived/`·`runs/`·`assets/`·`exports/`·`backups/`·`deploy/` 읽기·쓰기(`eval/` 없음, 삭제 권한 없음), `exports/` 태그 읽기·쓰기, SSM `/signal/*` 읽기와 SSM을 거친 KMS 복호화(`scripts/aws/policies/ec2-access.json`). EC2에서 쓰지 않는 `/signal/rds/master_password`·`owner_password`·`reader_password`는 명시적으로 거부. `AmazonSSMManagedInstanceCore`가 `ssm:GetParameter`·`ssm:GetParameters`를 모든 자원에 허용하므로 Allow 범위를 좁혀서는 막히지 않음(11월 15일 PR #35 리뷰, AWS 관리형 정책 문서 확인) |
+| EC2 인스턴스 역할 `signal-pipeline-ec2` | `AmazonSSMManagedInstanceCore`(Session Manager), 버킷 목록 조회, `raw/`·`derived/`·`runs/`·`assets/`·`exports/`·`backups/` 읽기·쓰기(`eval/` 없음, 삭제 권한 없음), `deploy/` 읽기만(배포 묶음은 GitHub Actions가 올리고 root로 도는 CodeDeploy 에이전트가 실행하므로 DAG 작업이 덮어쓰지 못하게 함, 11월 16일 PR #35 리뷰), `exports/` 태그 읽기·쓰기, SSM `/signal/*` 읽기와 SSM을 거친 KMS 복호화(`scripts/aws/policies/ec2-access.json`). EC2에서 쓰지 않는 `/signal/rds/master_password`·`owner_password`·`reader_password`는 명시적으로 거부. `AmazonSSMManagedInstanceCore`가 `ssm:GetParameter`·`ssm:GetParameters`를 모든 자원에 허용하므로 Allow 범위를 좁혀서는 막히지 않음(11월 15일 PR #35 리뷰, AWS 관리형 정책 문서 확인) |
 | 정책 `signal-protect-eip` | `signal-airflow` 탄력적 IP 해제 거부. 관리자 사용자 2명과 그룹 `signal-team`에 붙임(3.4) |
+| 정책 `signal-team-guardrails` | 그룹 `signal-team`에만 붙임(`scripts/aws/06-team-guardrails.sh`). 데이터 버킷의 버킷 정책 변경·삭제, 수명 주기·버전 관리·공개 차단 변경, 버킷 삭제 거부. RDS `signal-db` 수정·삭제 거부. SSM `/signal/rds/*` 읽기 거부(11월 16일 PR #35 리뷰). `PowerUserAccess`는 IAM을 바꾸지 못해 이 정책을 스스로 떼지 못함 |
 | 역할 `signal-budgets-stop-ec2` | AWS Budgets가 맡는 실행 역할. 같은 계정의 예산만 맡을 수 있음(`aws:SourceAccount`·`aws:SourceArn` 조건). AWS 관리형 정책 `AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`(3.10) |
 
-- 실제 권한은 위 표와 같음(10월 31일 PM(대현)이 사용자·그룹을 만들고, 11월 8일 데이터 엔지니어링·인프라(주영)가 그대로 두기로 함). 처음 설계한 그룹 `signal-admin`·`signal-dev`(EC2·RDS 읽기, Session Manager 접속, S3 읽기, SSM 읽기 없음)는 만들지 않음. 버킷 정책의 삭제 거부·`eval/` 거부는 이 권한과 관계없이 적용됨
+- 실제 권한은 위 표와 같음(10월 31일 PM(대현)이 사용자·그룹을 만들고, 11월 8일 데이터 엔지니어링·인프라(주영)가 그대로 두기로 함). 처음 설계한 그룹 `signal-admin`·`signal-dev`(EC2·RDS 읽기, Session Manager 접속, S3 읽기, SSM 읽기 없음)는 만들지 않음. 버킷 정책의 삭제 거부·`eval/` 거부는 버킷 정책이 그대로일 때만 적용됨. `PowerUserAccess`와 `AdministratorAccess`는 버킷 정책을 바꾸거나 지울 수 있고(`s3:PutBucketPolicy`·`s3:DeleteBucketPolicy`), 수명 주기 규칙으로 객체를 만료시킬 수 있으며(수명 주기 삭제는 버킷 정책의 삭제 거부에 걸리지 않음), RDS 삭제 보호도 풀 수 있음(`rds:ModifyDBInstance`). 그래서 `signal-team`에는 `signal-team-guardrails`로 이 동작들을 거부함. 관리자 사용자 2명은 구축 스크립트를 실행해야 해서 막지 않음. 장기 액세스 키가 유출되면 관리자 키로는 보호가 풀릴 수 있어, MFA 미설정 결정은 PM(대현)이 다시 검토(11월 16일 PR #35 리뷰)
 - `eval/` 읽기는 전용 IAM 역할만 허용. 버킷 정책이 그 역할 밖의 모든 주체를 거부함(`aws:PrincipalArn` 조건). 역할 이름 후보 `signal-eval`(PM 확인 전), 역할은 평가 자료를 올릴 때 만듦. 누가 맡는지는 「미결」
 - 사람 계정은 IAM 사용자 4명. MFA는 설정하지 않음(10월 31일 PM(대현) 결정). 액세스 키는 로컬 CLI용으로만 발급하고 90일마다 교체
 - 대시보드가 S3를 읽는 경우(3.9) 대시보드 전용 IAM 사용자를 두고 `exports/` 읽기만 허용. `s3:GetObject`는 `exports/*`에만, 목록 조회(`s3:ListBucket`)가 필요하면 `s3:prefix` 조건을 `exports/*`로 제한. 이 사용자의 키도 90일 교체 대상
@@ -701,7 +702,7 @@ flowchart LR
 3. 네트워크(`01-network.sh`): VPC `10.0.0.0/16`, 공개 서브넷 2a `10.0.0.0/24`, 사설 서브넷 2a `10.0.10.0/24`·2c `10.0.11.0/24`(`10.0.1.0/24`는 공개 2c용으로 비워 두고 만들지 않음), 공인 IP 자동 할당 끔, 인터넷 게이트웨이, 라우팅 표 2개(공개·사설), 보안 그룹 2개(`signal-ec2-sg`, `signal-rds-sg`), S3 게이트웨이 엔드포인트(공개 라우팅 표에만 연결. S3를 쓰는 것은 EC2뿐)
 4. S3 데이터 버킷(`02-s3.sh`): 버전 관리, 공개 차단, 기본 암호화, 버킷 정책, 수명 주기(3.2·3.7)
 5. RDS(`03-rds.sh`): DB 서브넷 그룹, 파라미터 그룹, 인스턴스(3.1 「구축 값」). 엔드포인트를 SSM `/signal/infra/rds_endpoint`에 적음
-6. EC2(`04-ec2.sh`): 인스턴스 역할·인스턴스 프로필 `signal-pipeline-ec2`, 탄력적 IP `signal-eip`와 해제 거부 정책 `signal-protect-eip`(3.4), EC2 `signal-airflow`(Amazon Linux 2023 표준 arm64 최신 AMI를 SSM 공개 파라미터로 읽음, t4g.small, 공개 서브넷 2a, gp3 20GB, IMDSv2 필수·홉 제한 1, SSH 키 없음, user data 없음)와 탄력적 IP 연결. 이어서 Budgets EC2 중지 동작과 실행 역할(`05-budgets.sh`, 3.10)
+6. EC2(`04-ec2.sh`): 인스턴스 역할·인스턴스 프로필 `signal-pipeline-ec2`, 탄력적 IP `signal-eip`와 해제 거부 정책 `signal-protect-eip`(3.4), EC2 `signal-airflow`(Amazon Linux 2023 표준 arm64 최신 AMI를 SSM 공개 파라미터로 읽음, t4g.small, 공개 서브넷 2a, gp3 20GB, IMDSv2 필수·홉 제한 1, SSH 키 없음, user data 없음)와 탄력적 IP 연결. 이어서 Budgets EC2 중지 동작과 실행 역할(`05-budgets.sh`, 3.10), 그룹 `signal-team` 보호 정책(`06-team-guardrails.sh`, 3.8)
    - 루트 볼륨 암호화(`aws/ebs`, 요금 없음), CPU 크레딧 standard(11월 13일 데이터 엔지니어링·인프라(주영) 결정). standard는 크레딧이 바닥나면 추가 요금 없이 기준 성능(vCPU당 20%)으로 느려짐. 기본값 unlimited는 느려지지 않는 대신 초과분에 요금이 붙음. 전량 재추출처럼 CPU를 오래 쓰는 실행이 느려지는 것을 받아들이고 예상 밖 요금을 막는 쪽을 택함
 7. arm64 실행 확인: Apple Silicon Mac의 Amazon Linux 2023 arm64 컨테이너(systemd, 메모리 2GB·CPU 2개)에서 10번 스크립트를 그대로 실행해 Airflow와 signal-pipeline이 실제로 실행되는지 확인(`scripts/aws/local-test/ec2-sim.sh`). 실패하면 EC2만 t3.small로 바꾸고 탄력적 IP 연결을 옮김(3.4 인스턴스 교체 절차)
 8. 탄력적 IP 확정 즉시 금감원 법인 키 신청. 공인 IP는 SSM `/signal/infra/eip_public_ip`
@@ -723,6 +724,9 @@ flowchart LR
     - S3 `raw/`: `If-None-Match` 없는 멀티파트 업로드 완료가 거부되는지, 8MB 넘는 파일을 `put_object(..., IfNoneMatch='*')`로 쓸 수 있는지
     - Budgets 중지 동작: 임계값을 낮춰(`BUDGET_THRESHOLD=1`로 `05-budgets.sh`) EC2가 실제로 중지되는지 시험한 뒤, EC2를 다시 켜고 동작을 `RESET_BUDGET_ACTION`으로 `STANDBY`에 되돌린 다음 100%로 다시 실행(명령은 `scripts/aws/README.md`)
     - S3 `derived/`: 같은 키 덮어쓰기 성공, 이전 버전 남음
+    - EC2 역할 권한: EC2에서 `aws ssm get-parameter --name /signal/rds/master_password --with-decryption`이 AccessDenied, `deploy/`에 쓰기가 AccessDenied
+    - `signal-team` 보호 정책: 그룹 사용자로 `aws s3api delete-bucket-policy`와 `aws rds modify-db-instance --no-deletion-protection`이 AccessDenied
+    - EC2 설정(`10-ec2-setup.sh`): Session Manager 셸에서 관리자 계정을 만들 때 비밀번호 입력을 기다리며 멈추지 않는지
     - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, 추출 병렬 2로 DART PDF 50건 연속 처리 중 스왑 500MB 이하, 300초 초과 파일 0건). 넘으면 t3.small로 전환하고, 같은 2GB이므로 추출 병렬 1로도 시험
     - 위 50건 연속 처리에서 파일별 pdfplumber 처리 시간과 최대 메모리 기록
     - RDS `SHOW max_connections`를 Airflow 연결 풀·작업 프로세스 연결 수와 비교
@@ -777,6 +781,7 @@ flowchart LR
 | `eval/` 전용 IAM 역할 이름. 후보 `signal-eval`로 버킷 정책에 들어가 있음. 바꾸면 `EVAL_ROLE=<이름>`으로 `02-s3.sh`를 다시 실행 | PM(대현) | 평가 자료를 올리기 전 |
 | `exports/runs/{score_run_id}/dashboard_documents.parquet`에 담을 칼럼: 드릴다운에 필요한 칼럼만 vs 문서 전문 포함(전문은 GB 규모 가능, Streamlit 메모리 위험)(3.9) | 데이터 사이언스(다빈)·PM(대현) | 대시보드 구현 전 |
 | 계정 폐쇄 대비 AWS 밖 백업 보관처 | PM(대현) | 11월 15일 |
+| 사람 계정 MFA 미설정 결정 재검토. 장기 액세스 키가 유출되면 관리자 키로는 버킷 정책·RDS 보호가 풀림. 사용자별 MFA는 Organizations 없이 켤 수 있음(11월 16일 PR #35 리뷰) | PM(대현) | AWS 자원 생성 전 |
 | 금감원 법인 키 신청 담당 | PM(대현)이 지정 | 탄력적 IP 할당 직후 |
 | `deploy/` 접두어 쓰기 규칙·보관 기간. 지금 스크립트 값은 가정(조건 없는 쓰기, 30일, 이전 버전 1일) | 데이터 엔지니어링·인프라(주영), PM(대현) | CodeDeploy 구축 전(Week 8) |
 | Budgets 실행 역할의 관리형 정책(`AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`) 내용 확인. 넓으면 `ec2:StopInstances`·`ssm:StartAutomationExecution`만 넣은 정책으로 바꿈 | 데이터 엔지니어링·인프라(주영) | `05-budgets.sh` 실행 전 |

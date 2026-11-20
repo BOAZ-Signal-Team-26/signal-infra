@@ -61,6 +61,7 @@ run_all() {
   else
     echo "05: 실패(moto가 Budgets 동작 API를 지원하지 않으면 실패함. 아래 출력 확인)"
   fi
+  "$AWS_DIR/06-team-guardrails.sh"
 }
 
 echo "===== 05: 크레딧 포함 예산이면 멈춤"
@@ -123,6 +124,11 @@ check EC2역할_DB비밀번호거부 "$(aws iam get-role-policy --role-name sign
 check EC2역할_경로조회없음 "$(aws iam get-role-policy --role-name signal-pipeline-ec2 --policy-name signal-pipeline-ec2-access --query PolicyDocument --output json | jq '[.. | strings | select(. == "ssm:GetParametersByPath")] | length')" 0
 check EIP보호정책_할당ID갱신 "$(aws iam get-policy-version --policy-arn "$protect_arn" --version-id "$(aws iam get-policy --policy-arn "$protect_arn" --query Policy.DefaultVersionId --output text)" --query PolicyVersion.Document --output json | jq -r '.. | strings | select(startswith("arn:aws:ec2")) | split("/") | last')" "$(aws ec2 describe-addresses --filters "$f" --query 'Addresses[0].AllocationId' --output text)"
 check 예산_크레딧포함이면멈춤 "$budget_credit_check" ok
+check EC2역할_deploy읽기만 "$(aws iam get-role-policy --role-name signal-pipeline-ec2 --policy-name signal-pipeline-ec2-access --query PolicyDocument --output json | jq -r '[.Statement[] | select(.Effect=="Allow") | select([.Resource] | flatten | any(test("/deploy/"))) | [.Action] | flatten | join(",")] | join(" ")')" "s3:GetObject"
+guard_arn="arn:aws:iam::$account:policy/signal-team-guardrails"
+check 팀보호정책_연결 "$(aws iam list-entities-for-policy --policy-arn "$guard_arn" --query '[length(PolicyGroups),length(PolicyUsers),PolicyGroups[0].GroupName]' --output text | tr '\t' ' ')" "1 0 signal-team"
+check 팀보호정책_거부동작 "$(aws iam get-policy-version --policy-arn "$guard_arn" --version-id "$(aws iam get-policy --policy-arn "$guard_arn" --query Policy.DefaultVersionId --output text)" --query PolicyVersion.Document --output json | jq -r '[.Statement[] | select(.Effect=="Deny") | [.Action] | flatten | length] | add')" 9
+check 팀보호정책_버전수 "$(aws iam list-policy-versions --policy-arn "$guard_arn" --query 'length(Versions)')" 1
 check 역할 "$(aws iam list-roles --query "length(Roles[?starts_with(RoleName, 'signal-')])")" 2
 check EIP보호정책_연결 "$(aws iam list-entities-for-policy --policy-arn "arn:aws:iam::$account:policy/signal-protect-eip" --query '[length(PolicyGroups),length(PolicyUsers)]' --output text | tr '\t' ' ')" "1 1"
 # shellcheck disable=SC2016 # 백틱은 JMESPath 숫자 표기

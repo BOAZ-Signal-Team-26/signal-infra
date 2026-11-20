@@ -25,11 +25,12 @@
 | 3 | `03-rds.sh` | DB 서브넷 그룹, 파라미터 그룹, RDS PostgreSQL 16.15. 엔드포인트를 SSM `/signal/infra/rds_endpoint`에 적음 | 10~20분 |
 | 4 | `PROTECT_EIP_USERS="<관리자> <관리자>" 04-ec2.sh` | 인스턴스 역할, 탄력적 IP와 해제 거부 정책, EC2 t4g.small. 공인 IP를 SSM `/signal/infra/eip_public_ip`에 적음 | 3분 |
 | 5 | `BUDGET_EMAILS="<메일> <메일>" 05-budgets.sh` | 예산 동작: 실제 비용 100%에서 EC2 중지 | 1분 |
-| 6 | PM(대현) | `airflow` 데이터베이스와 DB 계정 4개·권한([저장 계층 설계](../../docs/storage-design.md) 3.6). `airflow` 계정 비밀번호는 SSM `/signal/rds/airflow_password` | |
-| 7 | `00-put-secret.sh`로 `/signal/airflow/fernet_key`(`--generate fernet`), `webserver_secret_key`·`admin_password`(`--generate password`), `/signal/dart/api_key`(입력) | Airflow·수집 비밀값 | 즉시 |
-| 8 | EC2 Session Manager 셸에서 `sudo bash 10-ec2-setup.sh --pipeline-ref <signal-pipeline 태그> --raw-root s3://<버킷>/` | 스왑, 패키지, Airflow 2.11.2, uv, signal-pipeline, systemd 서비스, CodeDeploy 에이전트 | 5~10분 |
-| 9 | signal-pipeline Flyway `migrate`(로컬에서 RDS 포트 전달로, `signal_owner` 계정. 아래 「로컬 결과를 옮기는 순서」 3번) | ERD 표 만들기(이력 표 `flyway_schema_history`) | 1분 |
-| 10 | 로컬 결과 옮기기(아래) | DB 행과 원본 파일 | |
+| 6 | `06-team-guardrails.sh` | 그룹 `signal-team` 보호 정책 `signal-team-guardrails`: 버킷 정책·수명 주기·버전 관리·공개 차단 변경과 버킷 삭제, RDS `signal-db` 수정·삭제, SSM `/signal/rds/*` 읽기 거부 | 즉시 |
+| 7 | PM(대현) | `airflow` 데이터베이스와 DB 계정 4개·권한([저장 계층 설계](../../docs/storage-design.md) 3.6). `airflow` 계정 비밀번호는 SSM `/signal/rds/airflow_password` | |
+| 8 | `00-put-secret.sh`로 `/signal/airflow/fernet_key`(`--generate fernet`), `webserver_secret_key`·`admin_password`(`--generate password`), `/signal/dart/api_key`(입력) | Airflow·수집 비밀값 | 즉시 |
+| 9 | EC2 Session Manager 셸에서 `sudo bash 10-ec2-setup.sh --pipeline-ref <signal-pipeline 태그> --raw-root s3://<버킷>/` | 스왑, 패키지, Airflow 2.11.2, uv, signal-pipeline, systemd 서비스, CodeDeploy 에이전트 | 5~10분 |
+| 10 | signal-pipeline Flyway `migrate`(로컬에서 RDS 포트 전달로, `signal_owner` 계정. 아래 「로컬 결과를 옮기는 순서」 3번) | ERD 표 만들기(이력 표 `flyway_schema_history`) | 1분 |
+| 11 | 로컬 결과 옮기기(아래) | DB 행과 원본 파일 | |
 
 - 3번 RDS 생성 요청에는 Database Insights Standard(`DatabaseInsightsMode=standard`, Performance Insights 7일)를 함께 넣는다. 오류가 나면 그 두 값을 빼고 다시 실행한 뒤 콘솔에서 켠다(로컬 모의 서버로는 확인하지 못함)
 - 5번 시험(설계 문서 6절 12): `BUDGET_THRESHOLD=1`로 5번을 실행해 EC2가 멈추는지 본다. 그 뒤 순서대로 실행한다
@@ -39,9 +40,9 @@
   4. `aws budgets describe-budget-action --account-id <계정 ID> --budget-name monthly-50usd --action-id <동작 ID> --query Action.Status`가 `STANDBY`인지 본다
   5. `BUDGET_THRESHOLD` 없이(100%) 5번을 다시 실행한다
   - 한 번 실행된 동작이 같은 예산 기간에 다시 실행되지 않는지는 AWS 문서에서 확인하지 못했다. 그래서 되돌린 뒤 `STANDBY`를 직접 확인한다
-- 8번 EC2에서 이 저장소를 받는 방법: `sudo dnf install -y git && git clone https://github.com/BOAZ-Signal-Team-26/signal-infra.git /tmp/signal-infra`
-- 8번 메타데이터 DB 연결은 `sslmode=verify-full`이다. RDS 공식 리전 CA 묶음(`https://truststore.pki.rds.amazonaws.com/ap-northeast-2/ap-northeast-2-bundle.pem`)을 받아 `/opt/signal/rds-ca/`에 둔다. 아래 「RDS 접속」의 포트 전달은 호스트 이름이 `localhost`라 인증서 이름과 맞지 않으므로 `sslmode=require`를 쓴다
-- 8번 관리자 계정 비밀번호는 명령 인자로 넘기지 않는다. `airflow users create`를 `--password` 없이 제어 터미널을 뗀 채(`setsid`) 실행하고 표준 입력으로 넘긴다
+- 9번 EC2에서 이 저장소를 받는 방법: `sudo dnf install -y git && git clone https://github.com/BOAZ-Signal-Team-26/signal-infra.git /tmp/signal-infra`
+- 9번 메타데이터 DB 연결은 `sslmode=verify-full`이다. RDS 공식 리전 CA 묶음(`https://truststore.pki.rds.amazonaws.com/ap-northeast-2/ap-northeast-2-bundle.pem`)을 받아 `/opt/signal/rds-ca/`에 둔다. 아래 「RDS 접속」의 포트 전달은 호스트 이름이 `localhost`라 인증서 이름과 맞지 않으므로 `sslmode=require`를 쓴다
+- 9번 관리자 계정 비밀번호는 명령 인자로 넘기지 않는다. `airflow users create`를 `--password` 없이 제어 터미널을 뗀 채(`setsid`) 실행하고 표준 입력으로 넘긴다
 - Airflow 화면: `aws ssm start-session --target <인스턴스 ID> --document-name AWS-StartPortForwardingSession --parameters portNumber=8080,localPortNumber=8080` 뒤 `http://localhost:8080`
 - RDS 접속: RDS는 EC2 보안 그룹에서만 5432번을 받는다. 로컬에서 `aws ssm start-session --target <인스턴스 ID> --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters host=<RDS 엔드포인트>,portNumber=5432,localPortNumber=15432`로 EC2를 거쳐 붙는다. 엔드포인트는 SSM `/signal/infra/rds_endpoint`. 접속 문자열은 `postgresql://<계정>@localhost:15432/signal?sslmode=require`이고 비밀번호는 넣지 않는다(`PGPASSWORD`나 `~/.pgpass`)
 
@@ -61,7 +62,7 @@
 
 | 스크립트 | 확인하는 것 | 확인하지 못하는 것 |
 |---|---|---|
-| `local-test/moto-test.sh` | 00~05가 모의 AWS(moto)에서 끝까지 돌고, 두 번 실행해도 자원이 늘지 않고, 이름·태그·주요 설정이 결정값과 같은지. EC2 역할의 DB 비밀번호 거부 문, 버킷 정책의 TLS 거부 문, 할당 ID가 바뀐 `signal-protect-eip` 정책을 다시 실행할 때 고치는지, 크레딧을 포함하는 예산이면 5번이 멈추는지 | 버킷 정책·IAM 거부의 실제 평가, 계정 리전 네임스페이스 이름 규칙, RDS 엔진 버전 검증, Budgets 동작(모의 서버 미지원) |
+| `local-test/moto-test.sh` | 00~06이 모의 AWS(moto)에서 끝까지 돌고, 두 번 실행해도 자원이 늘지 않고, 이름·태그·주요 설정이 결정값과 같은지. EC2 역할의 DB 비밀번호 거부 문, 버킷 정책의 TLS 거부 문, 할당 ID가 바뀐 `signal-protect-eip` 정책을 다시 실행할 때 고치는지, 크레딧을 포함하는 예산이면 5번이 멈추는지 | 버킷 정책·IAM 거부의 실제 평가, 계정 리전 네임스페이스 이름 규칙, RDS 엔진 버전 검증, Budgets 동작(모의 서버 미지원) |
 | `local-test/ec2-sim.sh --raw-dir <RAW_ROOT> [--rerun]` | 10번을 Amazon Linux 2023 arm64 컨테이너(systemd, 메모리 2GB·CPU 2개)에서 그대로 실행하고, 유휴·추출 병렬 2 처리 중 메모리를 1초 간격으로 기록. 메타데이터 DB 연결은 모의 RDS의 자체 서명 인증서로 `verify-full`. `--rerun`이면 10번을 한 번 더 실행 | cgroup에 잡히지 않는 커널 공용 메모리와 OS 기본 프로세스 일부, 스왑 2GB(Docker VM 스왑 1GB를 씀)와 스왑 단계의 다시 실행, 중간에 끊긴 뒤 다시 실행, RDS 공식 CA 묶음 내려받기, CPU 크레딧 |
 
 - 두 스크립트 모두 Docker가 필요하다. 끝나면 컨테이너를 지운다(`ec2-sim.sh --keep`이면 남김)

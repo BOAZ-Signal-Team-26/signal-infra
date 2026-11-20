@@ -17,9 +17,14 @@
         "arn:aws:s3:::{{BUCKET}}/runs/*",
         "arn:aws:s3:::{{BUCKET}}/assets/*",
         "arn:aws:s3:::{{BUCKET}}/exports/*",
-        "arn:aws:s3:::{{BUCKET}}/backups/*",
-        "arn:aws:s3:::{{BUCKET}}/deploy/*"
+        "arn:aws:s3:::{{BUCKET}}/backups/*"
       ]
+    },
+    {
+      "Sid": "ReadDeployBundles",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::{{BUCKET}}/deploy/*"
     },
     {
       "Sid": "TagExports",

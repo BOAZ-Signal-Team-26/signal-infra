@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyBucketProtectionChanges",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:DeleteBucket"
+      ],
+      "Resource": "arn:aws:s3:::{{BUCKET}}"
+    },
+    {
+      "Sid": "DenyRdsModifyDelete",
+      "Effect": "Deny",
+      "Action": ["rds:ModifyDBInstance", "rds:DeleteDBInstance"],
+      "Resource": "arn:aws:rds:{{REGION}}:{{ACCOUNT_ID}}:db:signal-db"
+    },
+    {
+      "Sid": "DenyRdsPasswords",
+      "Effect": "Deny",
+      "Action": "ssm:GetParameter*",
+      "Resource": "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/rds/*"
+    }
+  ]
+}

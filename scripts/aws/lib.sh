@@ -135,6 +135,35 @@ ssm_put_string() {
   aws ssm put-parameter --name "$1" --type String --value "$2" --overwrite >/dev/null
 }
 
+# 고객 관리형 IAM 정책을 만들거나, 이미 있고 내용이 다르면 새 기본 버전으로 바꾼다.
+# 버전이 5개(IAM 상한)면 기본이 아닌 것 중 가장 오래된 버전을 먼저 지운다. 사용: ensure_managed_policy NAME DOC DESCRIPTION
+ensure_managed_policy() {
+  local name=$1 doc=$2 description=$3 arn current_version current oldest
+  arn="arn:aws:iam::$(account_id):policy/$name"
+  if ! aws iam get-policy --policy-arn "$arn" >/dev/null 2>&1; then
+    # shellcheck disable=SC2046
+    aws iam create-policy --policy-name "$name" --policy-document "$doc" \
+      --description "$description" --tags $(tags_kv "$name") >/dev/null
+    log "정책 만듦: $name"
+    return
+  fi
+  current_version=$(aws iam get-policy --policy-arn "$arn" --query Policy.DefaultVersionId --output text)
+  current=$(aws iam get-policy-version --policy-arn "$arn" --version-id "$current_version" \
+    --query PolicyVersion.Document --output json | jq -S -c .)
+  if [[ "$current" == "$(printf '%s' "$doc" | jq -S -c .)" ]]; then
+    log "정책 있음: ${name}(내용 같음)"
+    return
+  fi
+  if [[ "$(aws iam list-policy-versions --policy-arn "$arn" --query 'length(Versions)' --output text)" -ge 5 ]]; then
+    oldest=$(aws iam list-policy-versions --policy-arn "$arn" \
+      --query 'sort_by(Versions[?!IsDefaultVersion], &CreateDate)[0].VersionId' --output text)
+    aws iam delete-policy-version --policy-arn "$arn" --version-id "$oldest"
+    log "정책 버전이 5개라 가장 오래된 ${oldest}를 지움: $name"
+  fi
+  aws iam create-policy-version --policy-arn "$arn" --policy-document "$doc" --set-as-default >/dev/null
+  log "정책 갱신: ${name}(새 기본 버전)"
+}
+
 # 같은 값을 여러 번 쓰는 JSON 정책 파일의 자리표시자를 바꾼다. 사용: render FILE KEY=VALUE ...
 render() {
   local file=$1 text kv

@@ -71,29 +71,7 @@ ensure_protect_policy() {
   arn="arn:aws:iam::$(account_id):policy/signal-protect-eip"
   doc=$(render "$POLICY_DIR/protect-eip.json" "REGION=$AWS_REGION" \
     "ACCOUNT_ID=$(account_id)" "ALLOCATION_ID=$alloc")
-  if aws iam get-policy --policy-arn "$arn" >/dev/null 2>&1; then
-    local current_version current oldest
-    current_version=$(aws iam get-policy --policy-arn "$arn" --query Policy.DefaultVersionId --output text)
-    current=$(aws iam get-policy-version --policy-arn "$arn" --version-id "$current_version" \
-      --query PolicyVersion.Document --output json | jq -S -c .)
-    if [[ "$current" == "$(printf '%s' "$doc" | jq -S -c .)" ]]; then
-      log "정책 있음: signal-protect-eip(내용 같음)"
-    else
-      if [[ "$(aws iam list-policy-versions --policy-arn "$arn" --query 'length(Versions)' --output text)" -ge 5 ]]; then
-        oldest=$(aws iam list-policy-versions --policy-arn "$arn" \
-          --query 'sort_by(Versions[?!IsDefaultVersion], &CreateDate)[0].VersionId' --output text)
-        aws iam delete-policy-version --policy-arn "$arn" --version-id "$oldest"
-        log "정책 버전이 5개라 가장 오래된 ${oldest}를 지움"
-      fi
-      aws iam create-policy-version --policy-arn "$arn" --policy-document "$doc" --set-as-default >/dev/null
-      log "정책 갱신: signal-protect-eip(할당 ID ${alloc}를 기본 버전으로)"
-    fi
-  else
-    # shellcheck disable=SC2046
-    aws iam create-policy --policy-name signal-protect-eip --policy-document "$doc" \
-      --description "Deny releasing the signal elastic IP" --tags $(tags_kv signal-protect-eip) >/dev/null
-    log "정책 만듦: signal-protect-eip"
-  fi
+  ensure_managed_policy signal-protect-eip "$doc" "Deny releasing the signal elastic IP"
   if aws iam get-group --group-name signal-team >/dev/null 2>&1; then
     aws iam attach-group-policy --group-name signal-team --policy-arn "$arn"
     log "signal-protect-eip를 그룹 signal-team에 붙임"
