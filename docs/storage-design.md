@@ -112,7 +112,7 @@
   - DB를 EC2와 분리하면 EC2를 켜고 끌 수 있음(3.3). 대시보드가 DB를 읽는 경우 DB만 켜 두면 됨
   - 전량 재실행 1회 5~10GB(추정)는 db.t4g.micro로 처리 가능한 규모. 느리면 인스턴스 크기만 올림
 - 설정
-  - PostgreSQL 16(마이너 16.15) 고정, 마이너 버전 자동 업그레이드 끔(11월 8일). 근거: DDL(signal-pipeline `db/migrations/001_erd_v2_2.sql`)과 물리 결정 6건이 16 기준으로 검증됨. Airflow 2.11.2가 테스트한 PostgreSQL은 13~17이라 18은 제외(Airflow 공식 문서 Prerequisites). 17은 DDL 미검증. 16.15 표준 지원은 2027년 9월, 주 버전 16 표준 지원은 2029년 2월 28일까지(RDS PostgreSQL 출시 일정)로 프로젝트 기간보다 김. 11월 8일 계정의 RDS 기본 주 버전은 18
+  - PostgreSQL 16(마이너 16.15) 고정, 마이너 버전 자동 업그레이드 끔(11월 8일). 근거: DDL(signal-pipeline `db/migrations/V1__erd_v2_2.sql`)과 물리 결정 6건이 16 기준으로 검증됨. Airflow 2.11.2가 테스트한 PostgreSQL은 13~17이라 18은 제외(Airflow 공식 문서 Prerequisites). 17은 DDL 미검증. 16.15 표준 지원은 2027년 9월, 주 버전 16 표준 지원은 2029년 2월 28일까지(RDS PostgreSQL 출시 일정)로 프로젝트 기간보다 김. 11월 8일 계정의 RDS 기본 주 버전은 18
   - 공개 접근 끔(publicly accessible = false). 사설 서브넷 2개(ap-northeast-2a, 2c)로 DB 서브넷 그룹 구성(RDS 필수 조건)
   - 데이터베이스 2개: `signal`(ERD 표), `airflow`(Airflow 메타데이터)
   - 저장 공간 gp3 20GB로 시작하고 자동 확장 상한 50GB(월 최대 6.55달러). 전량 재실행 1회 5~10GB(추정)의 두세 배
@@ -716,7 +716,7 @@ flowchart LR
     - 로그: `AIRFLOW_HOME/logs`, 14일 지난 파일을 매일 지우는 systemd 타이머, journald 상한 200MB. S3 원격 로그는 쓰지 않음
     - CodeDeploy 에이전트 설치(서울 리전 공식 설치 경로)와 부팅 시 자동 시작. 배포 설정은 Week 8
     - 설치한 Airflow·uv·pdfplumber·pg_dump 버전과 디스크 사용량을 `/var/lib/signal/setup-report.txt`에 남김. pdfplumber 버전을 파서 버전에 반영
-11. DB 초기화: 데이터베이스 2개·DB 계정 4개(PM(대현)), 스키마 3개·ERD v2.2 DDL(signal-pipeline `db/apply.py`, 이력 표 `public.schema_migrations`. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체). 로컬에 적재한 결과는 DB는 `pg_dump`/`pg_restore`(데이터만), 파일은 `scripts/aws/20-upload-raw-root.py`로 옮김(순서는 [scripts/aws/README.md](../scripts/aws/README.md))
+11. DB 초기화: 데이터베이스 2개·DB 계정 4개(PM(대현)), 스키마 3개·ERD v2.2 DDL(signal-pipeline Flyway `migrate`, 이력 표 `public.flyway_schema_history`. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체). 로컬에 적재한 결과는 DB는 `pg_dump`/`pg_restore`(데이터만), 파일은 `scripts/aws/20-upload-raw-root.py`로 옮김(순서는 [scripts/aws/README.md](../scripts/aws/README.md))
 12. 확인
     - Session Manager로 4인 모두 접속
     - S3 `raw/`: 조건부 쓰기 성공, 같은 키 재쓰기 실패, 조건 없는 쓰기 거부, 삭제 거부

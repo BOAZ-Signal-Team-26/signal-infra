@@ -115,7 +115,7 @@ main() {
     --query 'DBInstances[0].Endpoint.Address' --output text)
   ssm_put_string /signal/infra/rds_endpoint "$endpoint"
   log "03 완료: $DB_ID 사용 가능. 엔드포인트는 SSM /signal/infra/rds_endpoint"
-  log "다음(PM 담당): airflow DB와 DB 계정 4개·권한 만들기(storage-design.md 3.6). 마이그레이션은 signal-pipeline db/apply.py"
+  log "다음(PM 담당): airflow DB와 DB 계정 4개·권한 만들기(storage-design.md 3.6). 마이그레이션은 signal-pipeline Flyway(flyway.toml, 환경 rds)"
 }
 
 main "$@"

@@ -10,7 +10,7 @@
 
 ## 준비
 
-- 로컬: AWS CLI 2.39 이상(버킷 계정 리전 네임스페이스 `--bucket-namespace` 지원), `jq`, `openssl`
+- 로컬: AWS CLI 2.39 이상(버킷 계정 리전 네임스페이스 `--bucket-namespace` 지원), `jq`, `openssl`. RDS 마이그레이션에 Flyway 13.13.0(`brew install flyway`)
 - 관리자 권한 자격 증명. 리전은 기본 `ap-northeast-2`(`AWS_REGION`으로 바꿀 수 있음)
 - 6절 1(계정 준비)은 PM(대현)이 끝냄: IAM 사용자·그룹 `signal-team`, 예산 `monthly-50usd`
 - 예산 `monthly-50usd`는 크레딧 차감 전 금액으로 집계해야 한다(비용 유형의 크레딧 포함 끔, `CostTypes.IncludeCredit=false`). 크레딧을 포함하면 크레딧이 남아 있는 동안 EC2 중지가 실행되지 않으므로 5번이 멈춘다
@@ -28,7 +28,7 @@
 | 6 | PM(대현) | `airflow` 데이터베이스와 DB 계정 4개·권한([저장 계층 설계](../../docs/storage-design.md) 3.6). `airflow` 계정 비밀번호는 SSM `/signal/rds/airflow_password` | |
 | 7 | `00-put-secret.sh`로 `/signal/airflow/fernet_key`(`--generate fernet`), `webserver_secret_key`·`admin_password`(`--generate password`), `/signal/dart/api_key`(입력) | Airflow·수집 비밀값 | 즉시 |
 | 8 | EC2 Session Manager 셸에서 `sudo bash 10-ec2-setup.sh --pipeline-ref <signal-pipeline 태그> --raw-root s3://<버킷>/` | 스왑, 패키지, Airflow 2.11.2, uv, signal-pipeline, systemd 서비스, CodeDeploy 에이전트 | 5~10분 |
-| 9 | signal-pipeline `db/apply.py`(로컬에서 RDS 포트 전달로, `signal_owner` 계정. 아래 「로컬 결과를 옮기는 순서」 3번) | ERD 표 만들기(이력 표 방식) | 1분 |
+| 9 | signal-pipeline Flyway `migrate`(로컬에서 RDS 포트 전달로, `signal_owner` 계정. 아래 「로컬 결과를 옮기는 순서」 3번) | ERD 표 만들기(이력 표 `flyway_schema_history`) | 1분 |
 | 10 | 로컬 결과 옮기기(아래) | DB 행과 원본 파일 | |
 
 - 3번 RDS 생성 요청에는 Database Insights Standard(`DatabaseInsightsMode=standard`, Performance Insights 7일)를 함께 넣는다. 오류가 나면 그 두 값을 빼고 다시 실행한 뒤 콘솔에서 켠다(로컬 모의 서버로는 확인하지 못함)
@@ -53,7 +53,7 @@
 
 1. 원본 장비에서 내보내기: 로컬 PostgreSQL 16 컨테이너 안의 `pg_dump`로 데이터만 내보낸다. `docker exec signal-pg-local pg_dump -U <계정> -d signal --data-only -Fc -n raw -n staging -n mart -f /tmp/signal-data.dump`. 덤프는 컨테이너 임시 경로에만 두고 저장소나 S3 `backups/`(주간 백업 전용, 35일 보관)에 두지 않는다. `document`·`pipeline_run`의 순환 외래 키 경고는 자기 참조라 무시한다. 같은 장비에서 행 수·내용 md5를 출력해 둔다(명령은 `data-model.md`의 확인 1·2)
 2. 파일 올리기: `uv run --no-project --with 'boto3>=1.36.0' python scripts/aws/20-upload-raw-root.py --raw-root <로컬 RAW_ROOT> --bucket <버킷>`. 버킷 정책상 `aws s3 sync`는 거부되므로 이 스크립트로 새 키에만 쓴다. 다시 실행하면 같은 파일은 건너뛰고, 내용이 다른 파일은 실패로 알린다
-3. 표 만들기: 위 「RDS 접속」대로 포트 전달을 켜 둔 다른 터미널에서, `signal_owner` 비밀번호를 `PGPASSWORD`로 주고 signal-pipeline 저장소에서 `DATABASE_URL='postgresql://signal_owner@localhost:15432/signal?sslmode=require' uv run python db/apply.py`. RDS `signal` DB는 이때 비어 있어야 한다. 행이 있으면 DB를 새로 만든다
+3. 표 만들기: 위 「RDS 접속」대로 포트 전달을 켜 둔 다른 터미널에서, `signal_owner` 비밀번호를 `ENVIRONMENTS_RDS_PASSWORD`로 주고 signal-pipeline 저장소 루트에서 `flyway -environment=rds migrate`(설정은 signal-pipeline `flyway.toml`, 주소 `localhost:15432/signal?sslmode=require`). 끝나면 `flyway -environment=rds info`로 적용 상태를 본다. RDS `signal` DB는 이때 비어 있어야 한다. 행이 있으면 DB를 새로 만든다
 4. 넣기: 같은 컨테이너의 `pg_restore`로 포트 전달에 붙는다(컨테이너에서 Mac의 `localhost`는 `host.docker.internal`). `docker exec -e PGPASSWORD signal-pg-local pg_restore -h host.docker.internal -p 15432 -U signal_owner -d 'dbname=signal sslmode=require' --data-only --single-transaction --exit-on-error /tmp/signal-data.dump`. `pg_restore`는 표 소유자인 `signal_owner`로 실행한다. RDS 마스터는 INSERT·시퀀스 값 설정 권한이 없다. 한 트랜잭션이라 실패하면 전부 롤백된다
 5. 확인: RDS의 행 수·내용 md5를 출력해 1번 값과 비교한다. 같으면 `docker exec signal-pg-local rm /tmp/signal-data.dump`로 덤프를 지운다. 그 뒤 `uv run python -m signal_pipeline.loading.load_checks <RAW_ROOT>`(S3 전환 뒤)
 
