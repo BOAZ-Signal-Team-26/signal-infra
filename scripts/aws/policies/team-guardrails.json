@@ -25,6 +25,38 @@
       "Effect": "Deny",
       "Action": "ssm:GetParameter*",
       "Resource": "arn:aws:ssm:{{REGION}}:{{ACCOUNT_ID}}:parameter/signal/rds/*"
+    },
+    {
+      "Sid": "DenyParametersByPath",
+      "Effect": "Deny",
+      "Action": "ssm:GetParametersByPath",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyDeployBundleWrites",
+      "Effect": "Deny",
+      "Action": ["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
+      "Resource": "arn:aws:s3:::{{BUCKET}}/deploy/*"
+    },
+    {
+      "Sid": "DenyCodeDeployChanges",
+      "Effect": "Deny",
+      "Action": [
+        "codedeploy:Create*",
+        "codedeploy:Update*",
+        "codedeploy:Delete*",
+        "codedeploy:Put*",
+        "codedeploy:Register*",
+        "codedeploy:Deregister*",
+        "codedeploy:Add*",
+        "codedeploy:Remove*",
+        "codedeploy:TagResource",
+        "codedeploy:UntagResource",
+        "codedeploy:Stop*",
+        "codedeploy:Continue*",
+        "codedeploy:Skip*"
+      ],
+      "Resource": "*"
     }
   ]
 }
