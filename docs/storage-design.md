@@ -482,10 +482,10 @@ s3://signal-data-{접미어}/
 | IAM 그룹 `signal-team` | AWS 관리형 정책 `PowerUserAccess`. 분석·리서치(민석), 데이터 사이언스(다빈). IAM을 뺀 모든 서비스를 쓸 수 있어 SSM 비밀값 읽기·S3 쓰기도 가능함 |
 | EC2 인스턴스 역할 `signal-pipeline-ec2` | `AmazonSSMManagedInstanceCore`(Session Manager), 버킷 목록 조회, `raw/`·`derived/`·`runs/`·`assets/`·`exports/`·`backups/` 읽기·쓰기(`eval/` 없음, 삭제 권한 없음), `deploy/` 읽기만(배포 묶음은 GitHub Actions가 올리고 root로 도는 CodeDeploy 에이전트가 실행하므로 DAG 작업이 덮어쓰지 못하게 함, 11월 16일 PR #35 리뷰), `exports/` 태그 읽기·쓰기, SSM `/signal/*` 읽기와 SSM을 거친 KMS 복호화(`scripts/aws/policies/ec2-access.json`). EC2에서 쓰지 않는 `/signal/rds/master_password`·`owner_password`·`reader_password`는 명시적으로 거부. `AmazonSSMManagedInstanceCore`가 `ssm:GetParameter`·`ssm:GetParameters`를 모든 자원에 허용하므로 Allow 범위를 좁혀서는 막히지 않음(11월 15일 PR #35 리뷰, AWS 관리형 정책 문서 확인) |
 | 정책 `signal-protect-eip` | `signal-airflow` 탄력적 IP 해제 거부. 관리자 사용자 2명과 그룹 `signal-team`에 붙임(3.4) |
-| 정책 `signal-team-guardrails` | 그룹 `signal-team`에만 붙임(`scripts/aws/06-team-guardrails.sh`). 데이터 버킷의 버킷 정책 변경·삭제, 수명 주기·버전 관리·공개 차단 변경, 버킷 삭제 거부. RDS `signal-db` 수정·삭제 거부. SSM `/signal/rds/*` 읽기 거부(11월 16일 PR #35 리뷰). `PowerUserAccess`는 IAM을 바꾸지 못해 이 정책을 스스로 떼지 못함 |
+| 정책 `signal-team-guardrails` | 그룹 `signal-team`에만 붙임(`scripts/aws/06-team-guardrails.sh`). 데이터 버킷의 버킷 정책 변경·삭제, 수명 주기·버전 관리·공개 차단 변경, 버킷 삭제 거부. RDS `signal-db` 수정·삭제 거부. SSM `/signal/rds/*` 읽기 거부(11월 16일 PR #35 리뷰). SSM 경로 단위 조회(`ssm:GetParametersByPath`) 전체 거부: 이 API는 요청한 경로로만 권한을 확인해 `/signal`을 조회하면 `/signal/rds/*` 거부와 관계없이 비밀번호가 돌아옴(Parameter Store 문서 「How Parameter Store authorizes parameter retrieval」). 이름으로 하나씩 읽는 것은 됨. `deploy/` 쓰기·삭제와 CodeDeploy 배포 생성·설정 변경 거부: 배포 묶음은 CodeDeploy 에이전트가 root로 실행하므로 배포 역할만 바꿈(11월 22일 PR #35 리뷰). `PowerUserAccess`는 IAM을 바꾸지 못해 이 정책을 스스로 떼지 못함 |
 | 역할 `signal-budgets-stop-ec2` | AWS Budgets가 맡는 실행 역할. 같은 계정의 예산만 맡을 수 있음(`aws:SourceAccount`·`aws:SourceArn` 조건). AWS 관리형 정책 `AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`(3.10) |
 
-- 실제 권한은 위 표와 같음(10월 31일 PM(대현)이 사용자·그룹을 만들고, 11월 8일 데이터 엔지니어링·인프라(주영)가 그대로 두기로 함). 처음 설계한 그룹 `signal-admin`·`signal-dev`(EC2·RDS 읽기, Session Manager 접속, S3 읽기, SSM 읽기 없음)는 만들지 않음. 버킷 정책의 삭제 거부·`eval/` 거부는 버킷 정책이 그대로일 때만 적용됨. `PowerUserAccess`와 `AdministratorAccess`는 버킷 정책을 바꾸거나 지울 수 있고(`s3:PutBucketPolicy`·`s3:DeleteBucketPolicy`), 수명 주기 규칙으로 객체를 만료시킬 수 있으며(수명 주기 삭제는 버킷 정책의 삭제 거부에 걸리지 않음), RDS 삭제 보호도 풀 수 있음(`rds:ModifyDBInstance`). 그래서 `signal-team`에는 `signal-team-guardrails`로 이 동작들을 거부함. 관리자 사용자 2명은 구축 스크립트를 실행해야 해서 막지 않음. 장기 액세스 키가 유출되면 관리자 키로는 보호가 풀릴 수 있어, MFA 미설정 결정은 PM(대현)이 다시 검토(11월 16일 PR #35 리뷰)
+- 실제 권한은 위 표와 같음(10월 31일 PM(대현)이 사용자·그룹을 만들고, 11월 8일 데이터 엔지니어링·인프라(주영)가 그대로 두기로 함). 처음 설계한 그룹 `signal-admin`·`signal-dev`(EC2·RDS 읽기, Session Manager 접속, S3 읽기, SSM 읽기 없음)는 만들지 않음. 버킷 정책의 삭제 거부·`eval/` 거부는 버킷 정책이 그대로일 때만 적용됨. `PowerUserAccess`와 `AdministratorAccess`는 버킷 정책을 바꾸거나 지울 수 있고(`s3:PutBucketPolicy`·`s3:DeleteBucketPolicy`), 수명 주기 규칙으로 객체를 만료시킬 수 있으며(수명 주기 삭제는 버킷 정책의 삭제 거부에 걸리지 않음), RDS 삭제 보호도 풀 수 있음(`rds:ModifyDBInstance`). 그래서 `signal-team`에는 `signal-team-guardrails`로 이 동작들을 거부함. 관리자 사용자 2명은 구축 스크립트를 실행해야 해서 막지 않음. 장기 액세스 키가 유출되면 관리자 키로는 보호가 풀릴 수 있어, MFA 미설정 결정은 PM(대현)이 다시 검토(11월 16일 PR #35 리뷰). `signal-team-guardrails`는 EC2에서 명령을 실행하는 길은 막지 않음. `PowerUserAccess`는 Session Manager 셸, Run Command(`ssm:SendCommand`), State Manager 연결, 인스턴스 user data 변경으로 EC2에서 root 권한으로 명령을 실행할 수 있음. 그래서 EC2 역할이 읽는 `airflow_password`·`pipeline_password`와 EC2 디스크의 내용은 `signal-team`에게도 열려 있음. 이 길을 막으려면 거부 정책을 덧붙이기보다 `PowerUserAccess`를 필요한 권한만 담은 정책으로 바꿔야 해서 「미결」로 둠(11월 22일 PR #35 리뷰)
 - `eval/` 읽기는 전용 IAM 역할만 허용. 버킷 정책이 그 역할 밖의 모든 주체를 거부함(`aws:PrincipalArn` 조건). 역할 이름 후보 `signal-eval`(PM 확인 전), 역할은 평가 자료를 올릴 때 만듦. 누가 맡는지는 「미결」
 - 사람 계정은 IAM 사용자 4명. MFA는 설정하지 않음(10월 31일 PM(대현) 결정). 액세스 키는 로컬 CLI용으로만 발급하고 90일마다 교체
 - 대시보드가 S3를 읽는 경우(3.9) 대시보드 전용 IAM 사용자를 두고 `exports/` 읽기만 허용. `s3:GetObject`는 `exports/*`에만, 목록 조회(`s3:ListBucket`)가 필요하면 `s3:prefix` 조건을 `exports/*`로 제한. 이 사용자의 키도 90일 교체 대상
@@ -717,7 +717,7 @@ flowchart LR
     - 로그: `AIRFLOW_HOME/logs`, 14일 지난 파일을 매일 지우는 systemd 타이머, journald 상한 200MB. S3 원격 로그는 쓰지 않음
     - CodeDeploy 에이전트 설치(서울 리전 공식 설치 경로)와 부팅 시 자동 시작. 배포 설정은 Week 8
     - 설치한 Airflow·uv·pdfplumber·pg_dump 버전과 디스크 사용량을 `/var/lib/signal/setup-report.txt`에 남김. pdfplumber 버전을 파서 버전에 반영
-11. DB 초기화: 데이터베이스 2개·DB 계정 4개(PM(대현)), 스키마 3개·ERD v2.2 DDL(signal-pipeline Flyway `migrate`, 이력 표 `public.flyway_schema_history`. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체). 로컬에 적재한 결과는 DB는 `pg_dump`/`pg_restore`(데이터만), 파일은 `scripts/aws/20-upload-raw-root.py`로 옮김(순서는 [scripts/aws/README.md](../scripts/aws/README.md))
+11. DB 초기화: 데이터베이스 2개·DB 계정 4개(PM(대현)), 스키마 3개·ERD v2.2 DDL(signal-pipeline Flyway `migrate`, 이력 표 `public.flyway_schema_history`. [signal-pipeline PR #89](https://github.com/BOAZ-Signal-Team-26/signal-pipeline/pull/89) 병합 뒤 실행. `document.distributor_id` 외래 키는 만들지 않고 적재 검증으로 대체). 로컬에 적재한 결과는 DB는 `pg_dump`/`pg_restore`(데이터만), 파일은 `scripts/aws/20-upload-raw-root.py`로 옮김(순서는 [scripts/aws/README.md](../scripts/aws/README.md))
 12. 확인
     - Session Manager로 4인 모두 접속
     - S3 `raw/`: 조건부 쓰기 성공, 같은 키 재쓰기 실패, 조건 없는 쓰기 거부, 삭제 거부
@@ -726,6 +726,7 @@ flowchart LR
     - S3 `derived/`: 같은 키 덮어쓰기 성공, 이전 버전 남음
     - EC2 역할 권한: EC2에서 `aws ssm get-parameter --name /signal/rds/master_password --with-decryption`이 AccessDenied, `deploy/`에 쓰기가 AccessDenied
     - `signal-team` 보호 정책: 그룹 사용자로 `aws s3api delete-bucket-policy`와 `aws rds modify-db-instance --no-deletion-protection`이 AccessDenied
+    - `signal-team` 보호 정책: 그룹 사용자로 `aws ssm get-parameters-by-path --path /signal --recursive`와 `aws s3 cp`로 `deploy/`에 쓰는 것이 AccessDenied. 구축 전에는 IAM 정책 시뮬레이터(`aws iam simulate-principal-policy`)로 같은 동작을 확인
     - EC2 설정(`10-ec2-setup.sh`): Session Manager 셸에서 관리자 계정을 만들 때 비밀번호 입력을 기다리며 멈추지 않는지
     - 3.3의 메모리 합격 기준 확인(유휴 1.2GB 이하·스왑 0, 추출 병렬 2로 DART PDF 50건 연속 처리 중 스왑 500MB 이하, 300초 초과 파일 0건). 넘으면 t3.small로 전환하고, 같은 2GB이므로 추출 병렬 1로도 시험
     - 위 50건 연속 처리에서 파일별 pdfplumber 처리 시간과 최대 메모리 기록
@@ -782,6 +783,7 @@ flowchart LR
 | `exports/runs/{score_run_id}/dashboard_documents.parquet`에 담을 칼럼: 드릴다운에 필요한 칼럼만 vs 문서 전문 포함(전문은 GB 규모 가능, Streamlit 메모리 위험)(3.9) | 데이터 사이언스(다빈)·PM(대현) | 대시보드 구현 전 |
 | 계정 폐쇄 대비 AWS 밖 백업 보관처 | PM(대현) | 11월 15일 |
 | 사람 계정 MFA 미설정 결정 재검토. 장기 액세스 키가 유출되면 관리자 키로는 버킷 정책·RDS 보호가 풀림. 사용자별 MFA는 Organizations 없이 켤 수 있음(11월 16일 PR #35 리뷰) | PM(대현) | AWS 자원 생성 전 |
+| `signal-team`의 EC2 명령 실행 권한(Session Manager 셸, Run Command 등) 정리. `PowerUserAccess`를 유지할지, 필요한 권한만 담은 정책(포트 전달만 허용 등)으로 바꿀지(3.8, 11월 22일 PR #35 리뷰) | PM(대현), 데이터 엔지니어링·인프라(주영) | AWS 자원 생성 전 |
 | 금감원 법인 키 신청 담당 | PM(대현)이 지정 | 탄력적 IP 할당 직후 |
 | `deploy/` 접두어 쓰기 규칙·보관 기간. 지금 스크립트 값은 가정(조건 없는 쓰기, 30일, 이전 버전 1일) | 데이터 엔지니어링·인프라(주영), PM(대현) | CodeDeploy 구축 전(Week 8) |
 | Budgets 실행 역할의 관리형 정책(`AWSBudgetsActions_RolePolicyForResourceAdministrationWithSSM`) 내용 확인. 넓으면 `ec2:StopInstances`·`ssm:StartAutomationExecution`만 넣은 정책으로 바꿈 | 데이터 엔지니어링·인프라(주영) | `05-budgets.sh` 실행 전 |
