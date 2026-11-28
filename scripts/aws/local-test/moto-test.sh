@@ -127,7 +127,13 @@ check 예산_크레딧포함이면멈춤 "$budget_credit_check" ok
 check EC2역할_deploy읽기만 "$(aws iam get-role-policy --role-name signal-pipeline-ec2 --policy-name signal-pipeline-ec2-access --query PolicyDocument --output json | jq -r '[.Statement[] | select(.Effect=="Allow") | select([.Resource] | flatten | any(test("/deploy/"))) | [.Action] | flatten | join(",")] | join(" ")')" "s3:GetObject"
 guard_arn="arn:aws:iam::$account:policy/signal-team-guardrails"
 check 팀보호정책_연결 "$(aws iam list-entities-for-policy --policy-arn "$guard_arn" --query '[length(PolicyGroups),length(PolicyUsers),PolicyGroups[0].GroupName]' --output text | tr '\t' ' ')" "1 0 signal-team"
-check 팀보호정책_거부동작 "$(aws iam get-policy-version --policy-arn "$guard_arn" --version-id "$(aws iam get-policy --policy-arn "$guard_arn" --query Policy.DefaultVersionId --output text)" --query PolicyVersion.Document --output json | jq -r '[.Statement[] | select(.Effect=="Deny") | [.Action] | flatten | length] | add')" 26
+guard_doc=$(aws iam get-policy-version --policy-arn "$guard_arn" --version-id "$(aws iam get-policy --policy-arn "$guard_arn" --query Policy.DefaultVersionId --output text)" --query PolicyVersion.Document --output json)
+check 팀보호정책_거부동작 "$(jq -r '[.Statement[] | select(.Effect=="Deny") | [.Action] | flatten | length] | add' <<<"$guard_doc")" 26
+# 문장 하나의 "Effect Action,... Resource,..."
+guard_stmt() { jq -r --arg sid "$1" '.Statement[] | select(.Sid==$sid) | "\(.Effect) \([.Action] | flatten | join(",")) \([.Resource] | flatten | join(","))"' <<<"$guard_doc"; }
+check 팀보호정책_경로조회 "$(guard_stmt DenyParametersByPath)" "Deny ssm:GetParametersByPath *"
+check 팀보호정책_deploy쓰기 "$(guard_stmt DenyDeployBundleWrites)" "Deny s3:PutObject,s3:DeleteObject,s3:DeleteObjectVersion arn:aws:s3:::$bucket/deploy/*"
+check 팀보호정책_CodeDeploy "$(guard_stmt DenyCodeDeployChanges)" "Deny codedeploy:Create*,codedeploy:Update*,codedeploy:Delete*,codedeploy:Put*,codedeploy:Register*,codedeploy:Deregister*,codedeploy:Add*,codedeploy:Remove*,codedeploy:TagResource,codedeploy:UntagResource,codedeploy:Stop*,codedeploy:Continue*,codedeploy:Skip* *"
 check 팀보호정책_버전수 "$(aws iam list-policy-versions --policy-arn "$guard_arn" --query 'length(Versions)')" 1
 check 역할 "$(aws iam list-roles --query "length(Roles[?starts_with(RoleName, 'signal-')])")" 2
 check EIP보호정책_연결 "$(aws iam list-entities-for-policy --policy-arn "arn:aws:iam::$account:policy/signal-protect-eip" --query '[length(PolicyGroups),length(PolicyUsers)]' --output text | tr '\t' ' ')" "1 1"
